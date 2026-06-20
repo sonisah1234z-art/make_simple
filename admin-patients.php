@@ -1,11 +1,7 @@
 <?php
-session_start();
-include 'db.php';
-
-if (!isset($_SESSION['admin_id'])) {
-    header('Location: admin-login.php');
-    exit();
-}
+require_once 'auth.php';
+require_admin();
+require_once 'db.php';
 
 $admin_name = $_SESSION['admin_name'];
 $patients = [];

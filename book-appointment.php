@@ -12,8 +12,13 @@ $patient_name = $_SESSION['patient_name'];
 $error = '';
 $message = '';
 
+$status_column = $conn->query("SHOW COLUMNS FROM doctors LIKE 'status'");
+if ($status_column && $status_column->num_rows === 0) {
+    $conn->query("ALTER TABLE doctors ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'Offline'");
+}
+
 $doctors = [];
-$result = $conn->query('SELECT id, name, specialty FROM doctors ORDER BY name ASC');
+$result = $conn->query("SELECT id, name, specialty FROM doctors WHERE status = 'Available' ORDER BY name ASC");
 if ($result) {
     while ($row = $result->fetch_assoc()) {
         $doctors[] = $row;
@@ -28,15 +33,26 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (!$doctor_id || !$date || !$time) {
         $error = 'Please select a doctor and choose a date/time.';
     } else {
-        $stmt = $conn->prepare('INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, status) VALUES (?, ?, ?, ?, ?)');
-        $status = 'Pending';
-        $stmt->bind_param('iisss', $patient_id, $doctor_id, $date, $time, $status);
-        if ($stmt->execute()) {
-            $message = 'Appointment request sent successfully. Admin will confirm it shortly.';
+        $statusCheck = $conn->prepare('SELECT status FROM doctors WHERE id = ?');
+        $statusCheck->bind_param('i', $doctor_id);
+        $statusCheck->execute();
+        $statusCheck->bind_result($currentStatus);
+        $statusCheck->fetch();
+        $statusCheck->close();
+
+        if ($currentStatus !== 'Available') {
+            $error = 'Selected doctor is not available. Please choose another available doctor.';
         } else {
-            $error = 'Unable to book appointment at this time.';
+            $stmt = $conn->prepare('INSERT INTO appointments (patient_id, doctor_id, appointment_date, appointment_time, status) VALUES (?, ?, ?, ?, ?)');
+            $status = 'Pending';
+            $stmt->bind_param('iisss', $patient_id, $doctor_id, $date, $time, $status);
+            if ($stmt->execute()) {
+                $message = 'Appointment request sent successfully. Admin will confirm it shortly.';
+            } else {
+                $error = 'Unable to book appointment at this time.';
+            }
+            $stmt->close();
         }
-        $stmt->close();
     }
 }
 ?>
@@ -158,20 +174,23 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 <h2>Choose your appointment</h2>
                 <form method="POST" action="book-appointment.php">
                     <label for="doctor_id">Select Doctor</label>
-                    <select id="doctor_id" name="doctor_id" required>
+                    <select id="doctor_id" name="doctor_id" required <?php echo empty($doctors) ? 'disabled' : ''; ?> >
                         <option value="">Pick a doctor</option>
                         <?php foreach ($doctors as $doctor): ?>
                             <option value="<?php echo (int)$doctor['id']; ?>"><?php echo htmlspecialchars($doctor['name']) . ' — ' . htmlspecialchars($doctor['specialty']); ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <?php if (empty($doctors)): ?>
+                        <div class="alert error" style="margin-top: 0;">No available doctors are currently open for booking. Please check back later.</div>
+                    <?php endif; ?>
 
                     <label for="appointment_date">Date</label>
-                    <input id="appointment_date" type="date" name="appointment_date" required>
+                    <input id="appointment_date" type="date" name="appointment_date" required <?php echo empty($doctors) ? 'disabled' : ''; ?> >
 
                     <label for="appointment_time">Time</label>
-                    <input id="appointment_time" type="time" name="appointment_time" required>
+                    <input id="appointment_time" type="time" name="appointment_time" required <?php echo empty($doctors) ? 'disabled' : ''; ?> >
 
-                    <button class="button" type="submit">Request Appointment</button>
+                    <button class="button" type="submit" <?php echo empty($doctors) ? 'disabled' : ''; ?>>Request Appointment</button>
                 </form>
             </div>
             <div class="doctor-card">

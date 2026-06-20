@@ -1,10 +1,11 @@
 <?php
-session_start();
-include 'db.php';
+require_once 'auth.php';
+require_admin();
+require_once 'db.php';
 
-if (!isset($_SESSION['admin_id'])) {
-    header('Location: admin-login.php');
-    exit();
+$doctor_status_column = $conn->query("SHOW COLUMNS FROM doctors LIKE 'status'");
+if ($doctor_status_column && $doctor_status_column->num_rows === 0) {
+    $conn->query("ALTER TABLE doctors ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'Offline'");
 }
 
 $admin_name = $_SESSION['admin_name'];
@@ -25,6 +26,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     } elseif (isset($_POST['delete_all'])) {
         $conn->query('DELETE FROM doctors');
         $message = 'All doctors have been removed.';
+    } elseif (isset($_POST['update_status'])) {
+        $doctor_id = (int)$_POST['doctor_id'];
+        $status = $conn->real_escape_string($_POST['status']);
+        if (in_array($status, ['Available', 'Busy', 'Offline'])) {
+            $stmt = $conn->prepare('UPDATE doctors SET status = ? WHERE id = ?');
+            $stmt->bind_param('si', $status, $doctor_id);
+            if ($stmt->execute()) {
+                $message = 'Doctor status updated successfully.';
+            } else {
+                $error = 'Unable to update doctor status.';
+            }
+            $stmt->close();
+        } else {
+            $error = 'Invalid status selected.';
+        }
     } else {
         $name = $conn->real_escape_string($_POST['name']);
         $specialty = $conn->real_escape_string($_POST['specialty']);
@@ -32,8 +48,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $phone = $conn->real_escape_string($_POST['phone']);
 
         if ($name && $specialty) {
-            $stmt = $conn->prepare('INSERT INTO doctors (name, specialty, email, phone) VALUES (?, ?, ?, ?)');
-            $stmt->bind_param('ssss', $name, $specialty, $email, $phone);
+            $stmt = $conn->prepare('INSERT INTO doctors (name, specialty, email, phone, status) VALUES (?, ?, ?, ?, ?)');
+            $defaultStatus = 'Offline';
+            $stmt->bind_param('sssss', $name, $specialty, $email, $phone, $defaultStatus);
             if ($stmt->execute()) {
                 $message = 'Doctor added successfully.';
             } else {
@@ -47,7 +64,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $doctors = [];
-$result = $conn->query('SELECT id, name, specialty, email, phone, created_at FROM doctors ORDER BY created_at DESC');
+$result = $conn->query('SELECT id, name, specialty, email, phone, status, created_at FROM doctors ORDER BY created_at DESC');
 if ($result) {
     while ($row = $result->fetch_assoc()) {
         $doctors[] = $row;
@@ -143,13 +160,14 @@ if ($result) {
                         <th>Specialty</th>
                         <th>Email</th>
                         <th>Phone</th>
+                        <th>Status</th>
                         <th>Added</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     <?php if (count($doctors) === 0): ?>
-                        <tr><td colspan="6" style="color:#94a3b8; padding:18px;">No doctors have been added yet.</td></tr>
+                        <tr><td colspan="7" style="color:#94a3b8; padding:18px;">No doctors have been added yet.</td></tr>
                     <?php else: ?>
                         <?php foreach ($doctors as $doctor): ?>
                             <tr>
@@ -157,9 +175,19 @@ if ($result) {
                                 <td><?php echo htmlspecialchars($doctor['specialty']); ?></td>
                                 <td><?php echo htmlspecialchars($doctor['email']); ?></td>
                                 <td><?php echo htmlspecialchars($doctor['phone']); ?></td>
+                                <td><span class="status-pill status-<?php echo htmlspecialchars($doctor['status']); ?>"><?php echo htmlspecialchars($doctor['status']); ?></span></td>
                                 <td><?php echo htmlspecialchars($doctor['created_at']); ?></td>
                                 <td>
-                                    <form method="POST" style="display: inline;" onsubmit="return confirm('Are you sure you want to remove this doctor?');">
+                                    <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+                                        <select name="status" style="border-radius:12px;padding:8px 10px;border:1px solid rgba(148,163,184,0.24);background:rgba(255,255,255,0.08);color:#e2e8f0;">
+                                            <option value="Available" <?php echo $doctor['status'] === 'Available' ? 'selected' : ''; ?>>Available</option>
+                                            <option value="Busy" <?php echo $doctor['status'] === 'Busy' ? 'selected' : ''; ?>>Busy</option>
+                                            <option value="Offline" <?php echo $doctor['status'] === 'Offline' ? 'selected' : ''; ?>>Offline</option>
+                                        </select>
+                                        <input type="hidden" name="doctor_id" value="<?php echo $doctor['id']; ?>">
+                                        <button type="submit" name="update_status" class="button button-submit" style="padding:8px 12px;">Update</button>
+                                    </form>
+                                    <form method="POST" style="display:inline-block;margin-top:8px;" onsubmit="return confirm('Are you sure you want to remove this doctor?');">
                                         <input type="hidden" name="doctor_id" value="<?php echo $doctor['id']; ?>">
                                         <button type="submit" name="delete_doctor" class="button button-delete">Remove</button>
                                     </form>

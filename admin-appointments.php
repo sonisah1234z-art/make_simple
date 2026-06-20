@@ -1,28 +1,58 @@
 <?php
-session_start();
-include 'db.php';
-
-if (!isset($_SESSION['admin_id'])) {
-    header('Location: admin-login.php');
-    exit();
-}
+require_once 'auth.php';
+require_admin();
+require_once 'db.php';
+require_once 'otp-management.php';
 
 $admin_name = $_SESSION['admin_name'];
+$admin_id = $_SESSION['admin_id'] ?? null;
 $message = '';
 $error = '';
+$otp_message = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $appointment_id = (int)$_POST['appointment_id'];
     $status = $conn->real_escape_string($_POST['status']);
+    
     if ($appointment_id && in_array($status, ['Pending', 'Approved', 'Cancelled'])) {
-        $stmt = $conn->prepare('UPDATE appointments SET status = ? WHERE id = ?');
-        $stmt->bind_param('si', $status, $appointment_id);
-        if ($stmt->execute()) {
-            $message = 'Appointment status updated successfully.';
+        // Get appointment details before updating
+        $detailStmt = $conn->prepare('
+            SELECT patient_id, status as current_status FROM appointments WHERE id = ?
+        ');
+        $detailStmt->bind_param('i', $appointment_id);
+        $detailStmt->execute();
+        $detailResult = $detailStmt->get_result();
+        $appointment = $detailResult->fetch_assoc();
+        $detailStmt->close();
+        
+        if ($appointment) {
+            // Update appointment status
+            $stmt = $conn->prepare('UPDATE appointments SET status = ? WHERE id = ?');
+            $stmt->bind_param('si', $status, $appointment_id);
+            
+           if ($status === 'Approved' && $appointment['current_status'] !== 'Approved') {
+
+    $patient_id = $appointment['patient_id'];
+
+    $otpResult = createAppointmentOTP($appointment_id, $patient_id, $conn, $adminId);
+
+    if ($otpResult['success']) {
+        $message = 'Appointment approved successfully. ';
+
+        if ($otpResult['email_sent']) {
+            $message .= 'OTP has been sent to patient email.';
         } else {
-            $error = 'Unable to update appointment status.';
+            $message .= 'OTP generated (email not sent).';
         }
-        $stmt->close();
+
+        $otp_message = 'OTP: ' . htmlspecialchars($otpResult['otp']);
+
+    } else {
+        $error = $otpResult['message'];
+    }
+}
+            $stmt->close();
+        }
     }
 }
 
@@ -112,6 +142,11 @@ if ($result) {
         <div class="alert error"><?php echo $error; ?></div>
     <?php elseif ($message): ?>
         <div class="alert success"><?php echo $message; ?></div>
+        <?php if ($otp_message): ?>
+            <div class="alert success" style="background: rgba(34,197,94,0.20); margin-top: 10px;">
+                <strong>Generated OTP:</strong> <code style="background: rgba(0,0,0,0.3); padding: 4px 8px; border-radius: 4px; font-family: monospace;"><?php echo $otp_message; ?></code>
+            </div>
+        <?php endif; ?>
     <?php endif; ?>
 
     <div class="table-card">

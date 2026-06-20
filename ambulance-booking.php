@@ -119,7 +119,7 @@ $bookings = $conn->query("SELECT ab.*, d.name as driver_name FROM ambulance_book
     </div>
 
     <div class="emergency-notice">
-        <h3>🚨 Emergency Notice</h3>
+        <h3><img src="assets/icons/emergency.svg" class="icon" alt="Emergency">Emergency Notice</h3>
         <p>For life-threatening emergencies, please call emergency services directly at <strong>102</strong> or <strong>112</strong> instead of using this booking system. This service is for non-emergency medical transportation.</p>
     </div>
 

@@ -1,109 +1,169 @@
 <?php
-// Landing page for the hospital management portal.
-// Provides quick links for patients and administrators.
+session_start();
+include 'db.php';
+
+$error = '';
+
+if ($_SERVER['REQUEST_METHOD'] == 'POST') {
+
+    $role = $_POST['role'] ?? '';
+    $password = trim($_POST['password']);
+
+    $username = $_POST['username'] ?? '';
+    $email = $_POST['email'] ?? '';
+
+    $table = '';
+    $field = '';
+    $value = '';
+    $redirect = '';
+
+    // ROLE SETUP
+    if ($role == 'admin') {
+        $table = 'admins';
+        $field = 'username';
+        $value = $username;
+        $redirect = 'admin_dashboard.php';
+
+    } elseif ($role == 'pharmacist') {
+        $table = 'pharmacists';
+        $field = 'username';
+        $value = $username;
+        $redirect = 'pharmacist_dashboard.php';
+
+    } elseif ($role == 'patient') {
+        $table = 'patients';
+        $field = 'email';
+        $value = $email;
+        $redirect = 'patient_dashboard.php';
+
+    } elseif ($role == 'nurse') {
+        $table = 'nurses';
+        $field = 'email';
+        $value = $email;
+        $redirect = 'nurse_dashboard.php';
+    }
+
+    if (!empty($table)) {
+
+        $query = "SELECT * FROM $table WHERE $field='$value'";
+        $result = mysqli_query($conn, $query);
+
+        if ($result && mysqli_num_rows($result) > 0) {
+
+            $user = mysqli_fetch_assoc($result);
+
+            // SAFE PASSWORD CHECK
+            if (password_verify($password, $user['password'])) {
+
+                $_SESSION['user_id'] = $user['id'];
+                $_SESSION['user_name'] = $user['name'];
+                $_SESSION['role'] = $role;
+
+                header("Location: $redirect");
+                exit();
+
+            } else {
+                $error = "Incorrect Password!";
+            }
+
+        } else {
+            $error = "User Not Found!";
+        }
+
+    } else {
+        $error = "Please select role!";
+    }
+}
 ?>
+
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>Hospital Management System</title>
+<title>Hospital Login</title>
+
 <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-        min-height: 100vh;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: radial-gradient(circle at top, #0f172a, #1e293b 25%, #0f172a 100%);
-        color: #e2e8f0;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        padding: 24px;
-    }
-    .hero {
-        width: 100%;
-        max-width: 960px;
-        display: grid;
-        grid-template-columns: 1.1fr 0.9fr;
-        gap: 32px;
-        background: rgba(15, 23, 42, 0.95);
-        border: 1px solid rgba(148, 163, 184, 0.18);
-        border-radius: 32px;
-        padding: 40px;
-        box-shadow: 0 30px 100px rgba(15, 23, 42, 0.35);
-    }
-    .hero h1 { font-size: 44px; line-height: 1.05; margin-bottom: 18px; }
-    .hero p { color: #cbd5e1; font-size: 17px; line-height: 1.8; margin-bottom: 28px; }
-    .actions { display: grid; gap: 14px; }
-    @media (max-width: 768px) {
-        body { padding: 16px; }
-        .hero { grid-template-columns: 1fr; gap: 24px; padding: 28px; border-radius: 24px; }
-        .hero h1 { font-size: 32px; }
-        .hero p { font-size: 15px; }
-        .button { padding: 14px 18px; font-size: 15px; }
-    }
-    @media (max-width: 480px) {
-        body { padding: 12px; }
-        .hero { gap: 16px; padding: 20px; border-radius: 20px; }
-        .hero h1 { font-size: 26px; margin-bottom: 12px; }
-        .hero p { font-size: 14px; margin-bottom: 18px; }
-        .button { padding: 12px 16px; font-size: 13px; }
-    }
-    .button {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 16px 22px;
-        border-radius: 16px;
-        border: none;
-        text-decoration: none;
-        font-weight: 700;
-        transition: transform 0.18s ease, background 0.18s ease;
-    }
-    .button-primary { background: linear-gradient(135deg, #60a5fa, #2563eb); color: white; }
-    .button-secondary { background: rgba(255,255,255,0.08); color: #e2e8f0; }
-    .button:hover { transform: translateY(-2px); }
-    .panel {
-        background: rgba(255,255,255,0.05);
-        border: 1px solid rgba(255,255,255,0.08);
-        border-radius: 28px;
-        padding: 28px;
-        display: grid;
-        gap: 18px;
-    }
-    .panel h2 { font-size: 22px; margin-bottom: 8px; }
-    .panel p { color: #cbd5e1; line-height: 1.7; }
-    .panel a { color: #93c5fd; text-decoration: none; }
-    .panel a:hover { text-decoration: underline; }
-    .feature-list { display: grid; gap: 12px; margin-top: 16px; }
-    .feature-item { display: flex; gap: 12px; align-items: flex-start; }
-    .feature-item span { color: #60a5fa; font-size: 18px; line-height: 1; }
-    .feature-item div { color: #cbd5e1; }
-    @media (max-width: 820px) {
-        .hero { grid-template-columns: 1fr; }
-    }
+body{
+    margin:0;
+    font-family:Segoe UI;
+    height:100vh;
+    display:flex;
+    justify-content:center;
+    align-items:center;
+    background:linear-gradient(135deg,#0f172a,#1e3a8a,#2563eb);
+}
+
+.card{
+    width:420px;
+    padding:30px;
+    background:rgba(255,255,255,0.1);
+    backdrop-filter:blur(20px);
+    border-radius:20px;
+    color:white;
+}
+
+input, select{
+    width:100%;
+    padding:12px;
+    margin-bottom:10px;
+    border-radius:10px;
+    border:none;
+}
+
+button{
+    width:100%;
+    padding:12px;
+    background:#2563eb;
+    color:white;
+    border:none;
+    border-radius:10px;
+    cursor:pointer;
+}
+
+.role{
+    display:flex;
+    gap:5px;
+    margin-bottom:10px;
+}
+
+.error{
+    background:red;
+    padding:10px;
+    margin-bottom:10px;
+    border-radius:8px;
+}
 </style>
 </head>
+
 <body>
-<div class="hero">
-    <div>
-        <h1>Hospital Management System</h1>
-        <p>Use this portal to log in, register, or prepare the application for first use. Everything starts from here.</p>
-        <div class="actions">
-            <a class="button button-primary" href="login.php">Patient Login</a>
-            <a class="button button-secondary" href="register.php">Patient Register</a>
-            <a class="button button-secondary" href="admin-login.php">Admin Login</a>
-            <a class="button button-secondary" href="setup.php">Initialize Database</a>
-        </div>
-    </div>
-    <div class="panel">
-        <h2>What this app covers</h2>
-        <div class="feature-list">
-            <div class="feature-item"><span>✓</span><div>Patient login and account registration.</div></div>
-            <div class="feature-item"><span>✓</span><div>Book appointments with doctors from the clinic.</div></div>
-            <div class="feature-item"><span>✓</span><div>Admin login for managing patients, doctors, and schedules.</div></div>
-            <div class="feature-item"><span>✓</span><div>Basic local database setup with XAMPP.</div></div>
-        </div>
-    </div>
+
+<div class="card">
+
+<h2>Hospital Login</h2>
+
+<?php if($error): ?>
+<div class="error"><?php echo $error; ?></div>
+<?php endif; ?>
+
+<form method="POST">
+
+<select name="role" required>
+    <option value="">Select Role</option>
+    <option value="admin">Admin</option>
+    <option value="patient">Patient</option>
+    <option value="nurse">Nurse</option>
+    <option value="pharmacist">Pharmacist</option>
+</select>
+
+<input type="text" name="username" placeholder="Username (Admin/Pharmacist)">
+<input type="email" name="email" placeholder="Email (Patient/Nurse)">
+<input type="password" name="password" placeholder="Password" required>
+
+<button type="submit">Login</button>
+
+</form>
+
 </div>
+
 </body>
 </html>
