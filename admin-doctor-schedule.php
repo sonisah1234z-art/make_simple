@@ -135,6 +135,7 @@ if ($result) {
         select, input, textarea { padding: 10px 12px; margin-bottom: 12px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

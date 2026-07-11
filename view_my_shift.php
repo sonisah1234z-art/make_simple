@@ -137,6 +137,7 @@ tr:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 

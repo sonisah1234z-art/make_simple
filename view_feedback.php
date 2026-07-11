@@ -2,6 +2,19 @@
 session_start();
 include 'db.php';
 
+function ensure_feedback_table(mysqli $conn): void
+{
+    $conn->query("CREATE TABLE IF NOT EXISTS feedback (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        patient_name VARCHAR(255) NOT NULL,
+        rating INT NOT NULL DEFAULT 0,
+        comments TEXT,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )");
+}
+
+ensure_feedback_table($conn);
+
 /* Access control:
    - If the user is not authenticated at all, redirect to login.
    - If the user is authenticated but not an admin, show a friendly forbidden message.
@@ -16,6 +29,7 @@ if(isset($_SESSION['role']) && $_SESSION['role'] !== 'admin'){
     ?><!DOCTYPE html>
     <html><head><meta charset="utf-8"><title>Access Denied</title>
     <style>body{font-family:Arial;background:#f8fafc;color:#334155;padding:30px} .card{max-width:700px;margin:40px auto;background:white;padding:24px;border-radius:12px;box-shadow:0 10px 30px rgba(2,6,23,0.08)} a{color:#2563eb;text-decoration:none}</style>
+    <link rel="stylesheet" href="assets/css/compact-ui.css">
     </head><body>
     <div class="card">
         <h2>Access Restricted</h2>
@@ -81,6 +95,7 @@ tr:hover{
     color:#ff9800;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>

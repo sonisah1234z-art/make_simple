@@ -157,6 +157,7 @@ $reminders = $conn->query("SELECT * FROM vaccination_reminders WHERE status = 'P
         input, select, textarea { padding: 8px 10px; font-size: 12px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

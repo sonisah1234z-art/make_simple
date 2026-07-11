@@ -1,5 +1,6 @@
 <?php
-session_start();
+require_once 'auth.php';
+require_nurse();
 include "db.php";
 
 $result = mysqli_query($conn, "SELECT * FROM nurse_records ORDER BY id DESC");
@@ -95,6 +96,7 @@ tr:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 
@@ -149,12 +151,12 @@ if($row['attendance']=="Present"){
 <td>
 
 <a class="btn edit"
-href="edit_nurses.php?id=<?php echo $row['id']; ?>">
+href="edit_nurse.php?id=<?php echo $row['id']; ?>">
 Edit
 </a>
 
 <a class="btn delete"
-href="delete_nurses.php?id=<?php echo $row['id']; ?>"
+href="delete_nurse.php?id=<?php echo $row['id']; ?>"
 onclick="return confirm('Delete this record?')">
 Delete
 </a>

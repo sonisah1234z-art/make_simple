@@ -1,6 +1,7 @@
 <?php
 require_once 'auth.php';
 require_once 'db.php';
+ensure_lab_tests_table($conn);
 
 if (isset($_SESSION['admin_id'])) {
     // Admin: show all lab tests
@@ -8,7 +9,8 @@ if (isset($_SESSION['admin_id'])) {
 } elseif (isset($_SESSION['patient_id'])) {
     // Patient: show only own lab tests
     $patient_id = current_patient_id();
-    $result = $conn->query("SELECT l.*, p.name FROM lab_tests l LEFT JOIN patients p ON p.id = l.patient_id WHERE l.patient_id = " . intval($patient_id) . " ORDER BY l.id DESC");
+    // Only show completed reports to patients
+    $result = $conn->query("SELECT l.*, p.name FROM lab_tests l LEFT JOIN patients p ON p.id = l.patient_id WHERE l.patient_id = " . intval($patient_id) . " AND l.status = 'Completed' ORDER BY l.id DESC");
 } else {
     header('Location: login.php');
     exit();
@@ -52,6 +54,7 @@ img{
     height:80px;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>
@@ -81,10 +84,15 @@ while($row = $result->fetch_assoc())
         <td>{$row['result']}</td>
         <td>";
 
-    if(!empty($row['image'])){
-        echo "<img src='uploads/{$row['image']}'>";
+    if(!empty($row['file'])){
+        $ext = strtolower(pathinfo($row['file'], PATHINFO_EXTENSION));
+        if (in_array($ext, ['jpg','jpeg','png'])) {
+            echo "<img src='uploads/{$row['file']}'>";
+        } else {
+            echo "<a href='uploads/{$row['file']}' target='_blank'>Download</a>";
+        }
     } else {
-        echo "No Image";
+        echo "No Attachment";
     }
 
     echo "</td>

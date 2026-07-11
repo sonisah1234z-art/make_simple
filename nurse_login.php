@@ -1,25 +1,15 @@
 <?php
 session_start();
 include "db.php";
+require_once 'auth.php';
 
 if(isset($_POST['login']))
 {
-    $email = $_POST['email'];
-    $password = $_POST['password'];
+    $email = trim($_POST['email'] ?? '');
+    $password = $_POST['password'] ?? '';
 
-    $query = mysqli_query($conn,
-    "SELECT * FROM nurses
-     WHERE email='$email'
-     AND password='$password'");
-
-    if(mysqli_num_rows($query) > 0)
+    if(login_user($conn, 'nurse', $email, $password))
     {
-        $row = mysqli_fetch_assoc($query);
-
-        $_SESSION['nurse_id'] = $row['id'];
-        $_SESSION['username'] = $row['nurse_name'];
-        $_SESSION['role'] = "Nurse";
-
         header("Location: nurse_dashboard.php");
         exit();
     }
@@ -96,6 +86,7 @@ button:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>
@@ -112,9 +103,9 @@ if(isset($error)){
 
 <form method="post">
 
-<input type="email"
+<input type="text"
 name="email"
-placeholder="Enter Email"
+placeholder="Enter Username or Email"
 required>
 
 <input type="password"

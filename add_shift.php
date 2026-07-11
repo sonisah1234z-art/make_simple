@@ -1,18 +1,26 @@
 <?php
+require_once 'auth.php';
+require_admin();
 include "db.php";
+
+$conn->query("CREATE TABLE IF NOT EXISTS nurse_shifts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nurse_name VARCHAR(255) NOT NULL,
+    shift_type VARCHAR(100) NOT NULL,
+    shift_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)");
 
 if(isset($_POST['assign']))
 {
-    $nurse_name = $_POST['nurse_name'];
-    $shift_type = $_POST['shift_type'];
-    $shift_date = $_POST['shift_date'];
+    $nurse_name = trim($_POST['nurse_name']);
+    $shift_type = trim($_POST['shift_type']);
+    $shift_date = trim($_POST['shift_date']);
 
-    mysqli_query($conn,"
-    INSERT INTO nurse_shifts
-    (nurse_name,shift_type,shift_date)
-    VALUES
-    ('$nurse_name','$shift_type','$shift_date')
-    ");
+    $stmt = $conn->prepare("INSERT INTO nurse_shifts (nurse_name, shift_type, shift_date) VALUES (?, ?, ?)");
+    $stmt->bind_param('sss', $nurse_name, $shift_type, $shift_date);
+    $stmt->execute();
+    $stmt->close();
 
     echo "<script>alert('Shift Assigned Successfully');</script>";
 }
@@ -142,6 +150,7 @@ button:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 
@@ -192,7 +201,7 @@ Assign Shift
 
 </div>
 
-<a class="back" href="admin_dashboard.php">
+<a class="back" href="admin-dashboard.php">
 ⬅ Back to Dashboard
 </a>
 

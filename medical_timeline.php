@@ -2,6 +2,9 @@
 require_once 'auth.php';
 require_patient();
 require_once 'db.php';
+ensure_lab_tests_table($conn);
+ensure_feedback_table($conn);
+ensure_medicine_orders_table($conn);
 
 $patient_id = current_patient_id();
 $patient_name = $_SESSION['patient_name'] ?? '';
@@ -94,18 +97,29 @@ if ($patient_name !== '') {
 /* Prescriptions / Medicine Orders */
 if ($patient_name !== '') {
     $prescription_sql = "SELECT id, medicine_name, quantity, total_price, status FROM medicine_orders WHERE patient_name = '" . $conn->real_escape_string($patient_name) . "' ORDER BY id DESC";
-    if ($result = $conn->query($prescription_sql)) {
+    try {
+        $result = $conn->query($prescription_sql);
+    } catch (mysqli_sql_exception $e) {
+        $result = false;
+    }
+
+    if ($result) {
         while ($row = $result->fetch_assoc()) {
             $timestamp = $row['id'];
+            $medicineName = $row['medicine_name'] ?? 'Medicine';
+            $quantity = isset($row['quantity']) ? (int)$row['quantity'] : 0;
+            $totalPrice = isset($row['total_price']) ? (float)$row['total_price'] : 0.0;
+            $orderStatus = $row['status'] ?? 'Pending';
+
             $timeline[] = [
                 'type' => 'prescription',
                 'timestamp' => $timestamp,
-                'title' => "Medicine Order: {$row['medicine_name']}",
-                'subtitle' => "Qty: {$row['quantity']} • Total: Rs. " . number_format($row['total_price'], 2),
-                'description' => "Order status: {$row['status']}",
+                'title' => "Medicine Order: {$medicineName}",
+                'subtitle' => "Qty: {$quantity} • Total: Rs. " . number_format($totalPrice, 2),
+                'description' => "Order status: {$orderStatus}",
                 'meta' => "Order #{$row['id']}",
                 'badge_text' => 'Prescription',
-                'badge_class' => strtolower($row['status']) === 'pending' ? 'warning' : 'success',
+                'badge_class' => strtolower($orderStatus) === 'pending' ? 'warning' : 'success',
                 'icon' => 'bi bi-capsule',
                 'color' => 'danger',
             ];
@@ -239,5 +253,6 @@ usort($timeline, function ($a, $b) {
     .timeline-marker { width: 34px; height: 34px; }
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 <?php include 'footer.php'; ?>

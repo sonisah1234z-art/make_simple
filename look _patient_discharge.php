@@ -42,6 +42,7 @@ body{
     box-shadow:0 0 10px #ccc;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 

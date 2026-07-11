@@ -77,6 +77,7 @@ $result = $conn->query($sql);
             font-weight: bold;
         }
     </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>

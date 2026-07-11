@@ -141,6 +141,7 @@ $requests = $conn->query('SELECT * FROM blood_requests WHERE status = "Pending" 
         input, select { padding: 8px 10px; font-size: 12px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

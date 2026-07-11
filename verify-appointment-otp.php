@@ -99,6 +99,7 @@ if ($result) {
             .button-group { flex-direction: column; }
         }
     </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

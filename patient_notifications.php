@@ -1,6 +1,7 @@
 <?php
 session_start();
 include 'db.php';
+ensure_notifications_table($conn);
 
 if(!isset($_SESSION['patient_id']))
 {
@@ -12,7 +13,7 @@ $patient_id = $_SESSION['patient_id'];
 
 $result = $conn->query("
 SELECT * FROM notifications
-WHERE patient_id='$patient_id'
+WHERE patient_id='" . intval($patient_id) . "'
 ORDER BY created_at DESC
 ");
 ?>
@@ -42,6 +43,7 @@ body{
     box-shadow:0 0 5px #ccc;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 <body>

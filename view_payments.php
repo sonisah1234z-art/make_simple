@@ -2,6 +2,9 @@
 require_once 'auth.php';
 require_admin();
 include 'db.php';
+require_once 'payment_schema.php';
+
+ensure_payments_table($conn);
 
 $result = $conn->query("
 SELECT * FROM payments
@@ -45,6 +48,7 @@ h2{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 

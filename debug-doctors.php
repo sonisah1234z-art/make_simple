@@ -6,7 +6,6 @@ if ($conn->connect_error) {
 
 $sql = "INSERT IGNORE INTO doctors (name, specialty, email, phone) VALUES 
     ('Dr. Sara Khan', 'General Physician', 'sara.khan@hospital.com', '+1234567890'),
-    ('Dr. Amir Shah', 'Cardiologist', 'amir.shah@hospital.com', '+1234567891'),
     ('Dr. Aisha Mahmood', 'Pediatrician', 'aisha.mahmood@hospital.com', '+1234567892'),
     ('Dr. Bilal Qureshi', 'Orthopedic Surgeon', 'bilal.qureshi@hospital.com', '+1234567893'),
     ('Dr. Nadia Farooq', 'Neurologist', 'nadia.farooq@hospital.com', '+1234567894'),

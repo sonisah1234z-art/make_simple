@@ -103,6 +103,7 @@ $bookings = $conn->query("SELECT ab.*, d.name as driver_name FROM ambulance_book
         .status { font-size: 10px; padding: 4px 6px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

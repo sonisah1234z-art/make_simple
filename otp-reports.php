@@ -149,6 +149,7 @@ if ($result) {
         @media (max-width: 1024px) { .topbar { flex-direction: column; align-items: flex-start; } }
         @media (max-width: 768px) { .stats-grid { grid-template-columns: 1fr 1fr; } table { font-size: 11px; } th, td { padding: 8px 10px; } }
     </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

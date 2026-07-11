@@ -1,6 +1,7 @@
 <?php
 session_start();
 include 'db.php';
+require_once 'auth.php';
 
 if (isset($_SESSION['admin_id'])) {
     header('Location: admin-dashboard.php');
@@ -10,22 +11,14 @@ if (isset($_SESSION['admin_id'])) {
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $username = $conn->real_escape_string($_POST['username']);
-    $password = $_POST['password'];
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
 
-    $result = $conn->query("SELECT * FROM admins WHERE username = '$username'");
-    if ($result && $result->num_rows > 0) {
-        $admin = $result->fetch_assoc();
-        if (password_verify($password, $admin['password'])) {
-            $_SESSION['admin_id'] = $admin['id'];
-            $_SESSION['admin_name'] = $admin['name'];
-            header('Location: admin-dashboard.php');
-            exit();
-        } else {
-            $error = 'Username found but password is incorrect. Try again.';
-        }
+    if (login_user($conn, 'admin', $username, $password)) {
+        header('Location: admin-dashboard.php');
+        exit();
     } else {
-        $error = 'Username not found. Try admin or contact support.';
+        $error = 'Invalid admin username or password.';
     }
 }
 ?>
@@ -170,6 +163,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .footer-link { font-size: 12px; margin-top: 14px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="login-panel">

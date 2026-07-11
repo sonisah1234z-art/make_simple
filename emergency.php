@@ -93,6 +93,7 @@ if(isset($_POST['alert']))
         background:#0056b3;
     }
     </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 <body>
@@ -111,7 +112,7 @@ if(isset($_POST['alert']))
         </button>
     </form>
 
-    <a href="patient_dashboard.php" class="back">
+    <a href="dashboard.php" class="back">
         &larr; Back to Dashboard
     </a>
 

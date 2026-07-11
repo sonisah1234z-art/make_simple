@@ -4,13 +4,24 @@
  * Handles email sending for hospital notifications including OTP delivery
  */
 
+require_once __DIR__ . '/smtp-config.php';
+
 // SMTP Configuration
-define('SMTP_HOST', 'smtp.gmail.com');
-define('SMTP_PORT', 587);
-define('SMTP_USERNAME', 'your-email@gmail.com'); // Configure with your email
-define('SMTP_PASSWORD', 'your-app-password');     // Configure with your app password
-define('SENDER_EMAIL', 'your-email@gmail.com');
-define('SENDER_NAME', 'Hospital Management System');
+$envSmtpHost = getenv('SMTP_HOST') ?: (isset($_ENV['SMTP_HOST']) ? $_ENV['SMTP_HOST'] : 'smtp.gmail.com');
+$envSmtpPort = getenv('SMTP_PORT') ?: (isset($_ENV['SMTP_PORT']) ? $_ENV['SMTP_PORT'] : 587);
+$envSmtpUsername = getenv('SMTP_USERNAME') ?: (isset($_ENV['SMTP_USERNAME']) ? $_ENV['SMTP_USERNAME'] : 'your-email@gmail.com');
+$envSmtpPassword = getenv('SMTP_PASSWORD') ?: (isset($_ENV['SMTP_PASSWORD']) ? $_ENV['SMTP_PASSWORD'] : 'your-app-password');
+$envSenderEmail = getenv('SENDER_EMAIL') ?: (isset($_ENV['SENDER_EMAIL']) ? $_ENV['SENDER_EMAIL'] : 'your-email@gmail.com');
+$envSenderName = getenv('SENDER_NAME') ?: (isset($_ENV['SENDER_NAME']) ? $_ENV['SENDER_NAME'] : 'Hospital Management System');
+$envSmtpEncryption = getenv('SMTP_ENCRYPTION') ?: (isset($_ENV['SMTP_ENCRYPTION']) ? $_ENV['SMTP_ENCRYPTION'] : 'tls');
+
+define('SMTP_HOST', $envSmtpHost);
+define('SMTP_PORT', (int)$envSmtpPort);
+define('SMTP_USERNAME', $envSmtpUsername);
+define('SMTP_PASSWORD', $envSmtpPassword);
+define('SENDER_EMAIL', $envSenderEmail);
+define('SENDER_NAME', $envSenderName);
+define('SMTP_ENCRYPTION', $envSmtpEncryption);
 
 /**
  * Send email using PHPMailer (if available) or PHP mail() function
@@ -22,13 +33,35 @@ define('SENDER_NAME', 'Hospital Management System');
  * @return bool True if email sent successfully, false otherwise
  */
 function sendEmail($to, $subject, $body, $attachments = []) {
-    // Check if PHPMailer is available
-    if (file_exists(__DIR__ . '/vendor/autoload.php')) {
-        return sendEmailWithPHPMailer($to, $subject, $body, $attachments);
-    } else {
-        // Fallback to PHP mail function
-        return sendEmailWithPhpMail($to, $subject, $body);
+    $recipient = is_string($to) ? trim($to) : '';
+    if ($recipient === '') {
+        error_log('Email delivery skipped because no recipient email address was provided.');
+        return false;
     }
+
+    $smtpConfigured = !empty(SMTP_HOST)
+        && !empty(SMTP_USERNAME)
+        && !empty(SMTP_PASSWORD)
+        && !empty(SENDER_EMAIL)
+        && strpos(strtolower((string)SMTP_USERNAME), 'your-email') === false
+        && strpos(strtolower((string)SMTP_USERNAME), 'your-real-email') === false
+        && strpos(strtolower((string)SMTP_PASSWORD), 'your-app-password') === false
+        && strpos(strtolower((string)SMTP_PASSWORD), 'your-real-app-password') === false
+        && filter_var($recipient, FILTER_VALIDATE_EMAIL) !== false;
+
+    if ($smtpConfigured && file_exists(__DIR__ . '/PHPMailer-master/src/PHPMailer.php')) {
+        $sent = sendEmailWithPHPMailer($recipient, $subject, $body, $attachments);
+        if ($sent) {
+            return true;
+        }
+    }
+
+    if (function_exists('mail')) {
+        return sendEmailWithPhpMail($recipient, $subject, $body);
+    }
+
+    error_log('Email delivery failed because neither SMTP nor PHP mail() is available for ' . $recipient . '.');
+    return false;
 }
 
 /**
@@ -36,39 +69,67 @@ function sendEmail($to, $subject, $body, $attachments = []) {
  */
 function sendEmailWithPHPMailer($to, $subject, $body, $attachments = []) {
     try {
-        require_once __DIR__ . '/vendor/autoload.php';
-        
+        $autoloadPath = __DIR__ . '/PHPMailer-master/src/PHPMailer.php';
+        if (!file_exists($autoloadPath)) {
+            error_log('PHPMailer source files are missing.');
+            return false;
+        }
+
+        if (empty(SMTP_HOST) || empty(SMTP_USERNAME) || empty(SMTP_PASSWORD) || empty(SENDER_EMAIL)) {
+            error_log('SMTP configuration is incomplete.');
+            return false;
+        }
+
+        require_once $autoloadPath;
+        require_once __DIR__ . '/PHPMailer-master/src/SMTP.php';
+        require_once __DIR__ . '/PHPMailer-master/src/Exception.php';
+
         $mail = new PHPMailer\PHPMailer\PHPMailer();
-        
+
         // Server settings
         $mail->isSMTP();
         $mail->Host = SMTP_HOST;
         $mail->SMTPAuth = true;
         $mail->Username = SMTP_USERNAME;
         $mail->Password = SMTP_PASSWORD;
-        $mail->SMTPSecure = PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
+        $mail->SMTPAutoTLS = true;
+        $mail->SMTPSecure = SMTP_ENCRYPTION === 'ssl'
+            ? PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_SMTPS
+            : PHPMailer\PHPMailer\PHPMailer::ENCRYPTION_STARTTLS;
         $mail->Port = SMTP_PORT;
-        
+        $mail->CharSet = 'UTF-8';
+
         // Recipients
         $mail->setFrom(SENDER_EMAIL, SENDER_NAME);
         $mail->addAddress($to);
-        
+        $mail->SMTPOptions = [
+            'ssl' => [
+                'verify_peer' => false,
+                'verify_peer_name' => false,
+                'allow_self_signed' => true,
+            ],
+        ];
+
         // Content
         $mail->isHTML(true);
         $mail->Subject = $subject;
         $mail->Body = $body;
         $mail->AltBody = strip_tags($body);
-        
+
         // Add attachments if provided
         foreach ($attachments as $file) {
             if (file_exists($file)) {
                 $mail->addAttachment($file);
             }
         }
-        
-        return $mail->send();
+
+        $sent = $mail->send();
+        if (!$sent) {
+            error_log('PHPMailer delivery failed for ' . $to . ': ' . $mail->ErrorInfo);
+        }
+        return $sent;
     } catch (Exception $e) {
-        error_log("PHPMailer Error: " . $e->getMessage());
+        error_log('PHPMailer Error for ' . $to . ': ' . $e->getMessage());
         return false;
     }
 }
@@ -78,13 +139,22 @@ function sendEmailWithPHPMailer($to, $subject, $body, $attachments = []) {
  * Note: This method is less reliable and should be used for development only
  */
 function sendEmailWithPhpMail($to, $subject, $body) {
+    if (!function_exists('mail')) {
+        error_log('PHP mail() is unavailable.');
+        return false;
+    }
+
     $headers = "MIME-Version: 1.0\r\n";
     $headers .= "Content-type: text/html; charset=UTF-8\r\n";
     $headers .= "From: " . SENDER_NAME . " <" . SENDER_EMAIL . ">\r\n";
     $headers .= "Reply-To: " . SENDER_EMAIL . "\r\n";
     $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
-    
-    return mail($to, $subject, $body, $headers);
+
+    $sent = mail($to, $subject, $body, $headers);
+    if (!$sent) {
+        error_log('PHP mail() delivery failed for ' . $to . '.');
+    }
+    return $sent;
 }
 
 /**

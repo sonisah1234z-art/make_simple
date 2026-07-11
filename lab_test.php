@@ -1,5 +1,6 @@
 <?php
 require_once 'db.php';
+ensure_lab_tests_table($conn);
 
 /* GET PATIENTS */
 $patients = $conn->query("SELECT id, name FROM patients");
@@ -16,16 +17,21 @@ if(isset($_POST['save']))
     $test_type  = $_POST['test_type'];
     $result     = $_POST['result'];
 
-    /* IMAGE UPLOAD */
-    $image = $_FILES['image']['name'];
-    $tmp   = $_FILES['image']['tmp_name'];
-
-    if(!empty($image)){
-        move_uploaded_file($tmp, $folder.$image);
+    /* Attachment upload => store in `file` column */
+    $uploadName = null;
+    if (!empty($_FILES['file']['name'])) {
+        $f = $_FILES['file'];
+        if ($f['error'] === UPLOAD_ERR_OK) {
+            $ext = strtolower(pathinfo($f['name'], PATHINFO_EXTENSION));
+            $allowed = ['jpg','jpeg','png','pdf'];
+            if (in_array($ext, $allowed, true)) {
+                $uploadName = bin2hex(random_bytes(8)) . '.' . $ext;
+                move_uploaded_file($f['tmp_name'], $folder . $uploadName);
+            }
+        }
     }
 
-    $sql = "INSERT INTO lab_tests(patient_id,test_type,result,image)
-            VALUES('$patient_id','$test_type','$result','$image')";
+    $sql = "INSERT INTO lab_tests(patient_id,test_type,result,file) VALUES('$patient_id','$test_type','$result','" . ($uploadName ? $conn->real_escape_string($uploadName) : '') . "')";
 
     if($conn->query($sql)){
         echo "<script>alert('Lab Test Saved Successfully');</script>";
@@ -69,6 +75,7 @@ button{
     border:none;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>
@@ -100,7 +107,7 @@ while($p = $patients->fetch_assoc())
 
 <textarea name="result" placeholder="Enter result" required></textarea>
 
-<input type="file" name="image" accept="image/*">
+<input type="file" name="file" accept="image/*,.pdf">
 
 <button type="submit" name="save">Save</button>
 

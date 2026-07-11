@@ -123,6 +123,7 @@ tr:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 <body>
@@ -130,7 +131,7 @@ tr:hover{
 <div class="header">
     <h2>Nurse Records Management</h2>
 
-    <a href="admin_dashboard.php" class="back-btn">
+    <a href="admin-dashboard.php" class="back-btn">
         Back Dashboard
     </a>
 </div>

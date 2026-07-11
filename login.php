@@ -1,52 +1,21 @@
 <?php
 session_start();
 include 'db.php';
+require_once 'auth.php';
 
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    $role = $_POST['role'] ?? '';
+    $identifier = trim($_POST['identifier'] ?? ($_POST['email'] ?? ''));
+    $password = $_POST['password'] ?? '';
 
-    $role = $_POST['role'];
-    $email = $conn->real_escape_string($_POST['email']);
-    $password = $_POST['password'];
-
-    // select table based on role
-    if ($role == "patient") {
-        $table = "patients";
-        $redirect = "patient_dashboard.php";
-    } elseif ($role == "nurse") {
-        $table = "nurses";
-        $redirect = "nurse_dashboard.php";
-    } elseif ($role == "pharmacist") {
-        $table = "pharmacists";
-        $redirect = "pharmacist_dashboard.php";
-    } elseif ($role == "admin") {
-        $table = "admins";
-        $redirect = "admin_dashboard.php";
+    if (login_user($conn, $role, $identifier, $password)) {
+        header('Location: ' . role_dashboard($_SESSION['role']));
+        exit();
     }
 
-    $result = $conn->query("SELECT * FROM $table WHERE email='$email'");
-
-    if ($result && $result->num_rows > 0) {
-
-        $user = $result->fetch_assoc();
-
-        if (password_verify($password, $user['password'])) {
-
-            $_SESSION['user_id'] = $user['id'];
-            $_SESSION['role'] = $role;
-            $_SESSION['name'] = $user['name'];
-
-            header("Location: $redirect");
-            exit();
-
-        } else {
-            $error = "❌ Wrong password!";
-        }
-
-    } else {
-        $error = "❌ User not found for selected role!";
-    }
+    $error = 'Invalid role, username/email, or password.';
 }
 ?>
 
@@ -145,6 +114,7 @@ input, select{
     text-decoration:none;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 
@@ -165,16 +135,18 @@ input, select{
             <label>Select Role</label>
             <select name="role" required>
                 <option value="">-- Choose Role --</option>
-                <option value="admin">Admin 👨‍💼</option>
-                <option value="patient">Patient 🧑‍🤝‍🧑</option>
-                <option value="nurse">Nurse 👩‍⚕️</option>
-                <option value="pharmacist">Pharmacist 💊</option>
+                <option value="admin">Admin</option>
+                <option value="doctor">Doctor</option>
+                <option value="patient">Patient</option>
+                <option value="nurse">Nurse</option>
+                <option value="pharmacist">Pharmacist</option>
+                <option value="receptionist">Receptionist</option>
             </select>
         </div>
 
         <div class="form-group">
-            <label>Email</label>
-            <input type="email" name="email" required>
+            <label>Username or Email</label>
+            <input type="text" name="identifier" required>
         </div>
 
         <div class="form-group">

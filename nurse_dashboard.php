@@ -1,11 +1,8 @@
 <?php
-session_start();
-
-$conn = mysqli_connect("localhost","root","","hospital_db");
-
-if(!$conn){
-    die("Database Connection Failed");
-}
+require_once 'auth.php';
+require_nurse();
+require_once 'db.php';
+require_once 'announcements.php';
 ?>
 
 <!DOCTYPE html>
@@ -94,20 +91,24 @@ if(!$conn){
             padding:15px;
         }
     </style>
+    <link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 <body>
 
-<div class="header">
-    🏥 Nurse Dashboard
+<div class="header" style="display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap;">
+    <span>🏥 Nurse Dashboard</span>
+    <a href="about.php" style="display:inline-block; padding:10px 16px; background:#38bdf8; color:#082f49; text-decoration:none; border-radius:8px; font-weight:bold;">About Us</a>
 </div>
 
 <div class="container">
 
     <div class="welcome">
-        <h2>Welcome Nurse</h2>
+        <h2>Welcome <?php echo htmlspecialchars($_SESSION['nurse_name']); ?></h2>
         <p>Manage patient records, attendance, and nursing activities.</p>
     </div>
+
+    <?php $context = get_current_user_context(); echo render_announcements_panel($conn, $context['role'], $context['id'], 3); ?>
 
     <div class="cards">
 
@@ -118,17 +119,17 @@ if(!$conn){
 
         <div class="card">
             <h3>📋 View Records</h3>
-            <a href="view_nurse.php">Open</a>
+            <a href="view_nurses.php">Open</a>
         </div>
 
         <div class="card">
             <h3>🩺 Patient Records</h3>
-            <a href="view_nurse.php">Open</a>
+            <a href="view_nurses.php">Open</a>
         </div>
 
         <div class="card">
             <h3>📊 Attendance</h3>
-            <a href="view_nurse.php">Open</a>
+            <a href="view_nurses.php">Open</a>
         </div>
 
         <div class="card">

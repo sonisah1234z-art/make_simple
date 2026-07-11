@@ -1,15 +1,14 @@
 <?php
 session_start();
+include "db.php";
+require_once 'auth.php';
 
 if(isset($_POST['login'])){
 
-    $username = $_POST['username'];
-    $password = $_POST['password'];
+    $username = trim($_POST['username'] ?? '');
+    $password = $_POST['password'] ?? '';
 
-    if($username == "pharmacist" && $password == "12345"){
-
-        $_SESSION['role'] = "Pharmacist";
-        $_SESSION['username'] = "Pharmacist";
+    if(login_user($conn, 'pharmacist', $username, $password)){
 
         header("Location: pharmacist_dashboard.php");
         exit();
@@ -80,6 +79,7 @@ button:hover{
     margin-bottom:10px;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 

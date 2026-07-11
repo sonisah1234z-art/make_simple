@@ -11,11 +11,12 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600;700;800&display=swap" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css" rel="stylesheet">
+    <link href="assets/css/compact-ui.css" rel="stylesheet">
     <link href="assets/css/style.css" rel="stylesheet">
 </head>
-<body>
-<div class="app d-flex">
-    <aside class="sidebar bg-dark text-white">
+<body class="bg-light">
+<div class="app d-flex flex-column flex-lg-row">
+    <aside class="sidebar bg-dark text-white d-flex flex-column">
         <div class="sidebar-brand p-3 d-flex align-items-center gap-2">
             <div class="brand-circle">H</div>
             <div class="brand-title">HospitalMS</div>
@@ -23,14 +24,23 @@
         <nav class="nav flex-column p-2">
                 <?php if (isset($_SESSION['admin_id'])): ?>
                 <a class="nav-link text-white" href="admin-dashboard.php"><i class="bi bi-speedometer2 me-2"></i>Admin Dashboard</a>
+                    <a class="nav-link text-white" href="admin_lab_technicians.php"><i class="bi bi-people-fill me-2"></i>Lab Technicians</a>
+                    <a class="nav-link text-white" href="admin_lab_reports.php"><i class="bi bi-file-earmark-medical me-2"></i>Lab Reports</a>
+                <a class="nav-link text-white" href="about.php"><i class="bi bi-info-circle me-2"></i>About Us</a>
                 <a class="nav-link text-white" href="admin-patients.php"><i class="bi bi-people me-2"></i>Patients</a>
                 <a class="nav-link text-white" href="admin-doctors.php"><i class="bi bi-person-badge me-2"></i>Doctors</a>
                 <a class="nav-link nav-appointment text-white" href="admin-appointments.php"><i class="bi bi-calendar-check me-2"></i>Appointments</a>
                 <a class="nav-link text-white" href="bed-availability.php"><i class="bi bi-hospital me-2"></i>Bed Availability</a>
                 <a class="nav-link text-white" href="admin-billing.php"><i class="bi bi-receipt me-2"></i>Billing</a>
+                <a class="nav-link text-white" href="view_nurses_list.php"><i class="bi bi-person-hearts me-2"></i>Nurses</a>
+                <a class="nav-link text-white" href="view_shifts.php"><i class="bi bi-calendar3 me-2"></i>Nurse Shifts</a>
                 <a class="nav-link text-white" href="admin-reports.php"><i class="bi bi-graph-up me-2"></i>Reports</a>
+            <?php elseif (isset($_SESSION['lab_technician_id'])): ?>
+                <a class="nav-link text-white" href="lab_technician_dashboard.php"><i class="bi bi-gear-wide-connected me-2"></i>My Lab Tests</a>
+                <a class="nav-link text-white" href="view_lab_test.php"><i class="bi bi-beaker me-2"></i>Lab Tests</a>
             <?php elseif (isset($_SESSION['patient_id'])): ?>
                 <a class="nav-link text-white" href="dashboard.php"><i class="bi bi-house-heart me-2"></i>Dashboard</a>
+                <a class="nav-link text-white" href="about.php"><i class="bi bi-info-circle me-2"></i>About Us</a>
                 <a class="nav-link text-white" href="book-appointment.php"><i class="bi bi-plus-circle me-2"></i>Book Appointment</a>
                 <a class="nav-link nav-appointment text-white" href="view_appointments.php"><i class="bi bi-calendar-check me-2"></i>My Appointments</a>
                 <a class="nav-link text-white" href="bed-availability.php"><i class="bi bi-hospital me-2"></i>Bed Availability</a>
@@ -40,6 +50,7 @@
                 <a class="nav-link text-white" href="medical_timeline.php"><i class="bi bi-clock-history me-2"></i>Health Timeline</a>
             <?php else: ?>
                 <a class="nav-link text-white" href="index.php"><i class="bi bi-house me-2"></i>Home</a>
+                <a class="nav-link text-white" href="about.php"><i class="bi bi-info-circle me-2"></i>About Us</a>
             <?php endif; ?>
         </nav>
         <div class="sidebar-footer p-3">
@@ -49,6 +60,9 @@
             <?php elseif (isset($_SESSION['patient_name'])): ?>
                 <div class="small text-muted">Signed in as</div>
                 <div class="fw-bold"><?php echo htmlspecialchars($_SESSION['patient_name']); ?></div>
+            <?php elseif (isset($_SESSION['lab_technician_name'])): ?>
+                <div class="small text-muted">Signed in as</div>
+                <div class="fw-bold"><?php echo htmlspecialchars($_SESSION['lab_technician_name']); ?></div>
             <?php endif; ?>
             <div class="mt-2">
                 <a class="btn btn-sm btn-light" href="logout.php">Logout</a>
@@ -57,9 +71,9 @@
     </aside>
 
     <div class="main flex-fill">
-        <nav class="topnav navbar navbar-expand-lg navbar-light bg-white shadow-sm">
+        <nav class="topnav navbar navbar-expand-lg navbar-light bg-white shadow-sm sticky-top">
             <div class="container-fluid">
-                <button class="btn btn-outline-secondary me-2" id="sidebarToggle">☰</button>
+                <button class="btn btn-outline-secondary btn-sm me-2" id="sidebarToggle">Menu</button>
                 <form class="d-flex ms-2 me-auto" role="search">
                     <input class="form-control me-2" type="search" placeholder="Search" aria-label="Search" id="globalSearch">
                 </form>
@@ -73,9 +87,11 @@
                             <strong><?php echo htmlspecialchars($_SESSION['patient_name']); ?></strong>
                         <?php endif; ?>
                     </div>
+                    <?php if (!isset($_SESSION['patient_name'])): ?>
                     <div>
-                        <a class="btn btn-outline-primary" href="#" id="notifBtn">Notifications</a>
+                        <a class="btn btn-outline-primary btn-sm" href="#" id="notifBtn">Notifications</a>
                     </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </nav>

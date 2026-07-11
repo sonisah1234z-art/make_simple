@@ -1,13 +1,18 @@
 <?php
-$conn = mysqli_connect("localhost","root","","hospital_db");
+require_once 'auth.php';
+require_nurse();
+require_once 'db.php';
 
 if(isset($_GET['id']))
 {
-    $id = $_GET['id'];
+    $id = (int)$_GET['id'];
 
-    mysqli_query($conn, "DELETE FROM nurse_records WHERE id='$id'");
+    $stmt = $conn->prepare("DELETE FROM nurse_records WHERE id = ?");
+    $stmt->bind_param('i', $id);
+    $stmt->execute();
+    $stmt->close();
 
-    header("Location: view_nurse.php");
+    header("Location: view_nurses.php");
     exit();
 }
 ?>

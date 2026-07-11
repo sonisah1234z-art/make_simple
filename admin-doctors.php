@@ -7,6 +7,18 @@ $doctor_status_column = $conn->query("SHOW COLUMNS FROM doctors LIKE 'status'");
 if ($doctor_status_column && $doctor_status_column->num_rows === 0) {
     $conn->query("ALTER TABLE doctors ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'Offline'");
 }
+$doctor_password_column = $conn->query("SHOW COLUMNS FROM doctors LIKE 'password'");
+if ($doctor_password_column && $doctor_password_column->num_rows === 0) {
+    $conn->query("ALTER TABLE doctors ADD COLUMN password VARCHAR(255) NULL");
+}
+
+$conn->query("CREATE TABLE IF NOT EXISTS departments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    description TEXT NULL,
+    status VARCHAR(20) NOT NULL DEFAULT 'Active',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
 $admin_name = $_SESSION['admin_name'];
 $message = '';
@@ -46,182 +58,210 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $specialty = $conn->real_escape_string($_POST['specialty']);
         $email = $conn->real_escape_string($_POST['email']);
         $phone = $conn->real_escape_string($_POST['phone']);
+        $password = $_POST['password'] !== '' ? $_POST['password'] : 'doctor123';
+        $department = trim($conn->real_escape_string($_POST['department'] ?? ''));
 
         if ($name && $specialty) {
-            $stmt = $conn->prepare('INSERT INTO doctors (name, specialty, email, phone, status) VALUES (?, ?, ?, ?, ?)');
-            $defaultStatus = 'Offline';
-            $stmt->bind_param('sssss', $name, $specialty, $email, $phone, $defaultStatus);
-            if ($stmt->execute()) {
-                $message = 'Doctor added successfully.';
-            } else {
-                $error = 'Unable to add doctor. Email may already exist.';
+            if ($email !== '') {
+                $checkStmt = $conn->prepare('SELECT id FROM doctors WHERE email = ? LIMIT 1');
+                if ($checkStmt) {
+                    $checkStmt->bind_param('s', $email);
+                    $checkStmt->execute();
+                    $checkResult = $checkStmt->get_result();
+                    if ($checkResult && $checkResult->num_rows > 0) {
+                        $error = 'Unable to add doctor. Email already exists.';
+                        $checkStmt->close();
+                    } else {
+                        $checkStmt->close();
+                    }
+                }
             }
-            $stmt->close();
+
+            if ($error === '') {
+                $passwordHash = password_hash($password, PASSWORD_DEFAULT);
+                $stmt = $conn->prepare('INSERT INTO doctors (name, specialty, email, phone, status, password, department) VALUES (?, ?, ?, ?, ?, ?, ?)');
+                $defaultStatus = 'Offline';
+                if ($stmt) {
+                    $stmt->bind_param('sssssss', $name, $specialty, $email, $phone, $defaultStatus, $passwordHash, $department);
+                    try {
+                        if ($stmt->execute()) {
+                            $message = 'Doctor added successfully.';
+                        } else {
+                            $error = 'Unable to add doctor. Please try again.';
+                        }
+                    } catch (mysqli_sql_exception $ex) {
+                        if ($ex->getCode() === 1062) {
+                            $error = 'Unable to add doctor. Email already exists.';
+                        } else {
+                            $error = 'Unable to add doctor. Please try again.';
+                        }
+                    }
+                    $stmt->close();
+                } else {
+                    $error = 'Unable to add doctor. Please try again.';
+                }
+            }
         } else {
             $error = 'Name and specialty are required.';
         }
     }
 }
 
+$departments = [];
+$departmentResult = $conn->query('SELECT id, name FROM departments WHERE status = "Active" ORDER BY name ASC');
+if ($departmentResult) {
+    while ($row = $departmentResult->fetch_assoc()) {
+        $departments[] = $row;
+    }
+}
+
 $doctors = [];
-$result = $conn->query('SELECT id, name, specialty, email, phone, status, created_at FROM doctors ORDER BY created_at DESC');
+$result = $conn->query('SELECT id, name, specialty, email, phone, status, department, created_at FROM doctors ORDER BY created_at DESC');
 if ($result) {
     while ($row = $result->fetch_assoc()) {
         $doctors[] = $row;
     }
 }
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<title>Manage Doctors</title>
-<style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-        min-height: 100vh;
-        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-        background: radial-gradient(circle at top left, #0f172a, #111827 35%, #0f172a 100%);
-        color: #e2e8f0;
-        padding: 24px;
-    }
-    .page { max-width: 1200px; margin: 0 auto; }
-    .topbar { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 18px; margin-bottom: 28px; }
-    h1 { font-size: 34px; }
-    .subtitle { color: #94a3b8; margin-top: 6px; }
-    .button { display: inline-flex; align-items: center; justify-content: center; padding: 12px 20px; border-radius: 16px; border: none; background: linear-gradient(135deg, #60a5fa, #2563eb); color: white; font-weight: 700; cursor: pointer; transition: transform .18s ease; text-decoration: none; }
-    .button:hover { transform: translateY(-1px); }
-    .layout { display: grid; grid-template-columns: 1.3fr 0.7fr; gap: 24px; }
-    .table-card, .form-card { background: rgba(15, 23, 42, 0.95); border: 1px solid rgba(148, 163, 184, 0.16); border-radius: 28px; padding: 24px; box-shadow: 0 24px 80px rgba(15, 23, 42, 0.22); }
-    table { width: 100%; border-collapse: collapse; margin-top: 18px; }
-    th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid rgba(148, 163, 184, 0.12); }
-    th { color: #cbd5e1; font-weight: 700; }
-    td { color: #e2e8f0; }
-    label { display: block; margin-bottom: 8px; color: #cbd5e1; font-size: 14px; }
-    input { width: 100%; padding: 12px 14px; border-radius: 14px; border: 1px solid rgba(148, 163, 184, 0.18); background: rgba(255,255,255,0.06); color: #f8fafc; margin-bottom: 16px; }
-    input:focus { outline: none; border-color: #60a5fa; background: rgba(255,255,255,0.1); }
-    .button-submit { width: 100%; margin-top: 10px; }
-    .alert { border-radius: 18px; padding: 18px; margin-bottom: 22px; }
-    .alert.error { background: rgba(248,113,113,0.14); color: #fecaca; border: 1px solid rgba(248,113,113,0.24); }
-    .alert.success { background: rgba(34,197,94,0.14); color: #bbf7d0; border: 1px solid rgba(34,197,94,0.24); }
-    .button-delete { background: rgba(239, 68, 68, 0.2); color: #fca5a5; padding: 6px 10px; font-size: 12px; border: 1px solid rgba(239, 68, 68, 0.3); }
-    .button-delete:hover { background: rgba(239, 68, 68, 0.3); }
-    .button-delete-all { background: rgba(239, 68, 68, 0.2); color: #fca5a5; border: 1px solid rgba(239, 68, 68, 0.3); margin-top: 16px; width: 100%; }
-    .button-delete-all:hover { background: rgba(239, 68, 68, 0.3); }
-    @media (max-width: 960px) { .layout { grid-template-columns: 1fr; } .table-card { overflow-x: auto; } }
-    @media (max-width: 768px) {
-        .page { padding: 20px 16px; }
-        .topbar { gap: 12px; margin-bottom: 20px; flex-direction: column; align-items: flex-start; }
-        h1 { font-size: 26px; }
-        .layout { gap: 16px; }
-        .table-card, .form-card { padding: 16px; border-radius: 20px; }
-        table { font-size: 12px; }
-        th, td { padding: 10px 8px; }
-    }
-    @media (max-width: 480px) {
-        .page { padding: 16px 12px; }
-        h1 { font-size: 20px; }
-        .button { padding: 10px 14px; font-size: 12px; }
-        table { font-size: 11px; }
-        th, td { padding: 6px; }
-        .table-card, .form-card { padding: 12px; }
-        input { padding: 10px 12px; margin-bottom: 12px; }
-        .button-delete { padding: 5px 8px; font-size: 10px; }
-    }
-</style>
-</head>
-<body>
-<div class="page">
-    <div class="topbar">
-        <div>
-            <h1>Manage Doctors</h1>
-            <p class="subtitle">Admin <?php echo htmlspecialchars($admin_name); ?>, add new specialists and review the current roster.</p>
-        </div>
-        <div>
-            <a class="button" href="admin-dashboard.php">Dashboard</a>
-            <a href="index.php" style="color: #93c5fd; text-decoration: none; margin-left: 12px; font-weight: 600;">Home</a>
-            <a class="button" href="logout.php">Logout</a>
-        </div>
+<?php include 'header.php'; ?>
+
+<div class="page-head">
+    <div>
+        <div class="eyebrow">Admin Console</div>
+        <h1>Manage Doctors</h1>
+        <p>Admin <?php echo htmlspecialchars($admin_name); ?>, add new specialists and review the current roster.</p>
     </div>
+    <div class="head-actions">
+        <a class="btn btn-outline-primary btn-sm" href="admin-dashboard.php">Dashboard</a>
+        <a class="btn btn-outline-secondary btn-sm" href="index.php">Home</a>
+        <a class="btn btn-primary btn-sm" href="logout.php">Logout</a>
+    </div>
+</div>
 
-    <?php if ($error): ?>
-        <div class="alert error"><?php echo $error; ?></div>
-    <?php elseif ($message): ?>
-        <div class="alert success"><?php echo $message; ?></div>
-    <?php endif; ?>
+<?php if ($error): ?>
+    <div class="alert alert-danger" role="alert"><?php echo htmlspecialchars($error); ?></div>
+<?php elseif ($message): ?>
+    <div class="alert alert-success" role="alert"><?php echo htmlspecialchars($message); ?></div>
+<?php endif; ?>
 
-    <div class="layout">
-        <div class="table-card">
-            <h2>Doctor Roster</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>Name</th>
-                        <th>Specialty</th>
-                        <th>Email</th>
-                        <th>Phone</th>
-                        <th>Status</th>
-                        <th>Added</th>
-                        <th>Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    <?php if (count($doctors) === 0): ?>
-                        <tr><td colspan="7" style="color:#94a3b8; padding:18px;">No doctors have been added yet.</td></tr>
-                    <?php else: ?>
-                        <?php foreach ($doctors as $doctor): ?>
+<div class="row g-3">
+    <div class="col-12 col-xl-8">
+        <div class="card h-100">
+            <div class="panel-head">
+                <div>
+                    <h2>Doctor Roster</h2>
+                    <p>Current availability and contact details.</p>
+                </div>
+            </div>
+            <div class="table-responsive">
+                <table class="table align-middle">
+                    <thead>
+                        <tr>
+                            <th>Name</th>
+                            <th>Specialty</th>
+                            <th>Department</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>Status</th>
+                            <th>Added</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <?php if (count($doctors) === 0): ?>
                             <tr>
-                                <td><?php echo htmlspecialchars($doctor['name']); ?></td>
-                                <td><?php echo htmlspecialchars($doctor['specialty']); ?></td>
-                                <td><?php echo htmlspecialchars($doctor['email']); ?></td>
-                                <td><?php echo htmlspecialchars($doctor['phone']); ?></td>
-                                <td><span class="status-pill status-<?php echo htmlspecialchars($doctor['status']); ?>"><?php echo htmlspecialchars($doctor['status']); ?></span></td>
-                                <td><?php echo htmlspecialchars($doctor['created_at']); ?></td>
-                                <td>
-                                    <form method="POST" style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-                                        <select name="status" style="border-radius:12px;padding:8px 10px;border:1px solid rgba(148,163,184,0.24);background:rgba(255,255,255,0.08);color:#e2e8f0;">
-                                            <option value="Available" <?php echo $doctor['status'] === 'Available' ? 'selected' : ''; ?>>Available</option>
-                                            <option value="Busy" <?php echo $doctor['status'] === 'Busy' ? 'selected' : ''; ?>>Busy</option>
-                                            <option value="Offline" <?php echo $doctor['status'] === 'Offline' ? 'selected' : ''; ?>>Offline</option>
-                                        </select>
-                                        <input type="hidden" name="doctor_id" value="<?php echo $doctor['id']; ?>">
-                                        <button type="submit" name="update_status" class="button button-submit" style="padding:8px 12px;">Update</button>
-                                    </form>
-                                    <form method="POST" style="display:inline-block;margin-top:8px;" onsubmit="return confirm('Are you sure you want to remove this doctor?');">
-                                        <input type="hidden" name="doctor_id" value="<?php echo $doctor['id']; ?>">
-                                        <button type="submit" name="delete_doctor" class="button button-delete">Remove</button>
-                                    </form>
-                                </td>
+                                <td colspan="8" class="text-muted py-4">No doctors have been added yet.</td>
                             </tr>
-                        <?php endforeach; ?>
-                    <?php endif; ?>
-                </tbody>
-            </table>
+                        <?php else: ?>
+                            <?php foreach ($doctors as $doctor): ?>
+                                <?php $statusClass = $doctor['status'] === 'Available' ? 'bg-success-subtle text-success' : ($doctor['status'] === 'Busy' ? 'bg-warning-subtle text-warning' : 'bg-secondary-subtle text-secondary'); ?>
+                                <tr>
+                                    <td><?php echo htmlspecialchars($doctor['name']); ?></td>
+                                    <td><?php echo htmlspecialchars($doctor['specialty']); ?></td>
+                                    <td><?php echo htmlspecialchars($doctor['department'] ?: 'Unassigned'); ?></td>
+                                    <td><?php echo htmlspecialchars($doctor['email']); ?></td>
+                                    <td><?php echo htmlspecialchars($doctor['phone']); ?></td>
+                                    <td><span class="badge rounded-pill <?php echo $statusClass; ?>"><?php echo htmlspecialchars($doctor['status']); ?></span></td>
+                                    <td><?php echo htmlspecialchars($doctor['created_at']); ?></td>
+                                    <td>
+                                        <form method="POST" class="d-flex flex-wrap gap-2 align-items-center">
+                                            <select class="form-select form-select-sm" name="status">
+                                                <option value="Available" <?php echo $doctor['status'] === 'Available' ? 'selected' : ''; ?>>Available</option>
+                                                <option value="Busy" <?php echo $doctor['status'] === 'Busy' ? 'selected' : ''; ?>>Busy</option>
+                                                <option value="Offline" <?php echo $doctor['status'] === 'Offline' ? 'selected' : ''; ?>>Offline</option>
+                                            </select>
+                                            <input type="hidden" name="doctor_id" value="<?php echo $doctor['id']; ?>">
+                                            <button type="submit" name="update_status" class="btn btn-sm btn-outline-primary">Update</button>
+                                        </form>
+                                        <form method="POST" class="mt-2" onsubmit="return confirm('Are you sure you want to remove this doctor?');">
+                                            <input type="hidden" name="doctor_id" value="<?php echo $doctor['id']; ?>">
+                                            <button type="submit" name="delete_doctor" class="btn btn-sm btn-outline-danger">Remove</button>
+                                        </form>
+                                    </td>
+                                </tr>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </tbody>
+                </table>
+            </div>
             <?php if (count($doctors) > 0): ?>
-                <form method="POST" style="margin-top: 16px;" onsubmit="return confirm('Are you sure you want to remove ALL doctors? This action cannot be undone.');">
-                    <button type="submit" name="delete_all" class="button button-delete-all">Remove All Doctors</button>
+                <form method="POST" class="mt-3" onsubmit="return confirm('Are you sure you want to remove ALL doctors? This action cannot be undone.');">
+                    <button type="submit" name="delete_all" class="btn btn-danger w-100">Remove All Doctors</button>
                 </form>
             <?php endif; ?>
         </div>
-        <div class="form-card">
-            <h2>Add Doctor</h2>
-            <form method="POST" action="admin-doctors.php">
-                <label for="name">Name</label>
-                <input id="name" name="name" type="text" placeholder="Doctor name" required>
+    </div>
 
-                <label for="specialty">Specialty</label>
-                <input id="specialty" name="specialty" type="text" placeholder="Example: Cardiology" required>
+    <div class="col-12 col-xl-4">
+        <div class="card h-100">
+            <div class="panel-head">
+                <div>
+                    <h2>Add Doctor</h2>
+                    <p>Create an account for a new specialist.</p>
+                </div>
+            </div>
+            <form method="POST" action="admin-doctors.php" class="row g-2">
+                <div class="col-12">
+                    <label class="form-label" for="name">Name</label>
+                    <input id="name" name="name" type="text" class="form-control" placeholder="Doctor name" required>
+                </div>
 
-                <label for="email">Email</label>
-                <input id="email" name="email" type="email" placeholder="doctor@example.com">
+                <div class="col-12">
+                    <label class="form-label" for="specialty">Specialty</label>
+                    <input id="specialty" name="specialty" type="text" class="form-control" placeholder="Example: Cardiology" required>
+                </div>
 
-                <label for="phone">Phone</label>
-                <input id="phone" name="phone" type="text" placeholder="Contact number">
+                <div class="col-12">
+                    <label class="form-label" for="department">Department</label>
+                    <select id="department" name="department" class="form-select">
+                        <option value="">Select department</option>
+                        <?php foreach ($departments as $department): ?>
+                            <option value="<?php echo htmlspecialchars($department['name']); ?>"><?php echo htmlspecialchars($department['name']); ?></option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
 
-                <button class="button button-submit" type="submit">Add Doctor</button>
+                <div class="col-12">
+                    <label class="form-label" for="email">Email</label>
+                    <input id="email" name="email" type="email" class="form-control" placeholder="doctor@example.com">
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label" for="phone">Phone</label>
+                    <input id="phone" name="phone" type="text" class="form-control" placeholder="Contact number">
+                </div>
+
+                <div class="col-12">
+                    <label class="form-label" for="password">Login Password</label>
+                    <input id="password" name="password" type="password" class="form-control" placeholder="Default: doctor123">
+                </div>
+
+                <div class="col-12 mt-2">
+                    <button class="btn btn-primary w-100" type="submit">Add Doctor</button>
+                </div>
             </form>
         </div>
     </div>
 </div>
-</body>
-</html>
+
+<?php include 'footer.php'; ?>

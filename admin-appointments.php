@@ -13,45 +13,39 @@ $otp_message = '';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $appointment_id = (int)$_POST['appointment_id'];
     $status = $conn->real_escape_string($_POST['status']);
-    
+
     if ($appointment_id && in_array($status, ['Pending', 'Approved', 'Cancelled'])) {
-        // Get appointment details before updating
-        $detailStmt = $conn->prepare('
-            SELECT patient_id, status as current_status FROM appointments WHERE id = ?
-        ');
+        $detailStmt = $conn->prepare('SELECT patient_id, status AS current_status FROM appointments WHERE id = ?');
         $detailStmt->bind_param('i', $appointment_id);
         $detailStmt->execute();
         $detailResult = $detailStmt->get_result();
         $appointment = $detailResult->fetch_assoc();
         $detailStmt->close();
-        
+
         if ($appointment) {
-            // Update appointment status
             $stmt = $conn->prepare('UPDATE appointments SET status = ? WHERE id = ?');
             $stmt->bind_param('si', $status, $appointment_id);
-            
-           if ($status === 'Approved' && $appointment['current_status'] !== 'Approved') {
-
-    $patient_id = $appointment['patient_id'];
-
-    $otpResult = createAppointmentOTP($appointment_id, $patient_id, $conn, $adminId);
-
-    if ($otpResult['success']) {
-        $message = 'Appointment approved successfully. ';
-
-        if ($otpResult['email_sent']) {
-            $message .= 'OTP has been sent to patient email.';
-        } else {
-            $message .= 'OTP generated (email not sent).';
-        }
-
-        $otp_message = 'OTP: ' . htmlspecialchars($otpResult['otp']);
-
-    } else {
-        $error = $otpResult['message'];
-    }
-}
+            $stmt->execute();
             $stmt->close();
+
+            if ($status === 'Approved' && $appointment['current_status'] !== 'Approved') {
+                $patient_id = (int)$appointment['patient_id'];
+                $otpResult = createAppointmentOTP($appointment_id, $patient_id, $conn, $admin_id);
+
+                if ($otpResult['success']) {
+                    $message = 'Appointment approved successfully. ';
+                    if (!empty($otpResult['email_sent'])) {
+                        $message .= 'OTP has been sent to the patient email.';
+                    } else {
+                        $message .= 'OTP was generated, but the delivery email could not be sent. Please verify the SMTP configuration.';
+                    }
+                    $otp_message = 'OTP: ' . htmlspecialchars($otpResult['otp']);
+                } else {
+                    $error = $otpResult['message'];
+                }
+            } elseif ($status === 'Approved') {
+                $message = 'Appointment was already approved.';
+            }
         }
     }
 }
@@ -123,6 +117,7 @@ if ($result) {
         .form-inline button { width: 100%; padding: 8px 10px; font-size: 11px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

@@ -156,6 +156,7 @@ if ($result) {
             .otp-code { font-size: 20px; }
         }
     </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

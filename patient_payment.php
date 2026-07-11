@@ -1,6 +1,7 @@
 <?php
 session_start();
 include 'db.php';
+require_once 'payment_schema.php';
 
 if(!isset($_SESSION['patient_id']))
 {
@@ -8,12 +9,12 @@ if(!isset($_SESSION['patient_id']))
 }
 
 $patient_id = $_SESSION['patient_id'];
+ensure_payments_table($conn);
 
-$result = $conn->query("
-SELECT * FROM payments
-WHERE patient_id='$patient_id'
-ORDER BY id DESC
-");
+$stmt = $conn->prepare("SELECT * FROM payments WHERE patient_id = ? ORDER BY id DESC");
+$stmt->bind_param('i', $patient_id);
+$stmt->execute();
+$result = $stmt->get_result();
 ?>
 
 <!DOCTYPE html>
@@ -107,6 +108,7 @@ tr:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 

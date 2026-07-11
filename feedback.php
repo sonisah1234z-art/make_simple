@@ -83,6 +83,7 @@ button:hover{
     background:#1a68d1;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>

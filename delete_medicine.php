@@ -56,6 +56,7 @@ a.delete{
     border-radius:5px;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 
@@ -79,7 +80,7 @@ a.delete{
 <td><?php echo $row['id']; ?></td>
 <td><?php echo $row['medicine_name']; ?></td>
 <td><?php echo $row['stock']; ?></td>
-<td><?php echo $row['price']; ?></td>
+<td>Rs. <?php echo number_format((float)($row['price'] ?? 0), 2); ?></td>
 
 <td>
 <a class="delete"

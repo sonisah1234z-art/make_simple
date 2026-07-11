@@ -1,6 +1,7 @@
 <?php
 session_start();
 include 'db.php';
+require_once 'payment_schema.php';
 
 if (!isset($_SESSION['patient_id'])) {
     die("❌ Please login first");
@@ -8,18 +9,20 @@ if (!isset($_SESSION['patient_id'])) {
 
 $patient_id = $_SESSION['patient_id'];
 $patient_name = $_SESSION['patient_name'];
+ensure_payments_table($conn);
 
 if(isset($_POST['pay']))
 {
-    $amount = $_POST['amount'];
+    $amount = (float)$_POST['amount'];
 
-    $sql = "INSERT INTO payments(patient_id, patient_name, amount, payment_status)
-            VALUES('$patient_id', '$patient_name', '$amount', 'Pending')";
+    $stmt = $conn->prepare("INSERT INTO payments(patient_id, patient_name, amount, payment_status) VALUES(?, ?, ?, 'Pending')");
+    $stmt->bind_param('isd', $patient_id, $patient_name, $amount);
 
-    if($conn->query($sql))
+    if($stmt->execute())
     {
-        echo "<script>alert('Payment saved for $patient_name');</script>";
+        echo "<script>alert('Payment saved for " . htmlspecialchars($patient_name, ENT_QUOTES) . "');</script>";
     }
+    $stmt->close();
 }
 ?>
 
@@ -58,6 +61,7 @@ button{
     border: none;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>

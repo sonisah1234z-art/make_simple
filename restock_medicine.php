@@ -52,6 +52,7 @@ button{
     border:none;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 

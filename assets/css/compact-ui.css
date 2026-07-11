@@ -1,0 +1,522 @@
+* {
+    box-sizing: border-box;
+}
+
+html {
+    font-size: 14px;
+}
+
+body {
+    line-height: 1.42 !important;
+}
+
+.page,
+.container {
+    max-width: 1120px !important;
+}
+
+.container,
+.card,
+.login-card,
+.login-box,
+.register-card,
+.table-card,
+.form-card,
+.panel,
+.welcome,
+.table-box {
+    border-radius: 8px !important;
+}
+
+.container,
+.card,
+.login-card,
+.login-box,
+.register-card,
+.table-card,
+.form-card,
+.panel,
+.welcome,
+.table-box {
+    padding: 16px !important;
+}
+
+.login-card,
+.login-box,
+.register-card {
+    max-width: 420px !important;
+}
+
+.topbar,
+.header {
+    padding: 14px 18px !important;
+}
+
+.cards,
+.card-box,
+.dashboard-cards,
+.layout,
+.row,
+.shift-box {
+    gap: 10px !important;
+}
+
+.card {
+    min-height: auto !important;
+}
+
+.cards .card,
+.card-box .card,
+.stat-card {
+    padding: 14px !important;
+}
+
+h1 {
+    font-size: 1.65rem !important;
+    line-height: 1.15 !important;
+}
+
+h2 {
+    font-size: 1.35rem !important;
+    line-height: 1.2 !important;
+}
+
+h3 {
+    font-size: 1.05rem !important;
+}
+
+h4,
+h5 {
+    font-size: 0.95rem !important;
+}
+
+p {
+    margin-bottom: 0.55rem !important;
+}
+
+label {
+    margin-bottom: 4px !important;
+    font-size: 0.84rem !important;
+}
+
+input,
+select,
+textarea {
+    min-height: 36px !important;
+    padding: 8px 10px !important;
+    margin-bottom: 10px !important;
+    border-radius: 8px !important;
+    font-size: 0.9rem !important;
+}
+
+textarea {
+    min-height: 84px !important;
+}
+
+button,
+.button,
+.btn,
+.back,
+.back-btn,
+.logout,
+.link,
+a.button {
+    min-height: 36px !important;
+    padding: 8px 12px !important;
+    border-radius: 8px !important;
+    font-size: 0.88rem !important;
+}
+
+table {
+    font-size: 0.88rem !important;
+}
+
+th,
+td {
+    padding: 8px 10px !important;
+}
+
+.main {
+    padding: 14px !important;
+}
+
+.sidebar {
+    width: 240px !important;
+    max-width: 240px !important;
+    min-width: 220px !important;
+}
+
+.hero p,
+.subtitle,
+.subtext,
+.text-muted {
+    font-size: 0.9rem !important;
+}
+
+@media (max-width: 768px) {
+    html {
+        font-size: 13px;
+    }
+
+    body {
+        padding: 10px !important;
+    }
+
+    .container,
+    .page,
+    .login-card,
+    .login-box,
+    .register-card {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .cards,
+    .card-box,
+    .layout {
+        grid-template-columns: 1fr !important;
+    }
+}
+
+/* Responsive compact UI adjustments */
+.table-responsive {
+    overflow-x: auto !important;
+    width: 100% !important;
+}
+
+.page-head,
+.panel-head,
+.head-actions,
+.dashboard-layout,
+.action-grid,
+.metric-grid,
+.bed-grid {
+    display: flex !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+}
+
+.metric-grid,
+.bed-grid,
+.action-grid,
+.dashboard-layout,
+.cards,
+.card-box,
+.layout {
+    grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)) !important;
+}
+
+@media (max-width: 1024px) {
+    .page-head,
+    .panel-head,
+    .head-actions {
+        flex-direction: column !important;
+        align-items: flex-start !important;
+    }
+
+    .sidebar {
+        width: 100% !important;
+        position: relative !important;
+    }
+}
+
+@media (max-width: 768px) {
+    html {
+        font-size: 13px;
+    }
+
+    body {
+        padding: 10px !important;
+    }
+
+    .container,
+    .page,
+    .login-card,
+    .login-box,
+    .register-card {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .cards,
+    .card-box,
+    .layout,
+    .metric-grid,
+    .bed-grid,
+    .action-grid,
+    .dashboard-layout {
+        grid-template-columns: 1fr !important;
+    }
+
+    .sidebar .nav {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+    }
+
+    .sidebar .nav-link {
+        padding: 12px 14px !important;
+    }
+
+    .sidebar-footer {
+        display: none !important;
+    }
+
+    .topnav .form-control {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .btn,
+    button,
+    .button,
+    a.button,
+    .submit {
+        width: 100% !important;
+    }
+}
+
+@media (max-width: 576px) {
+    html {
+        font-size: 12px;
+    }
+
+    .page-head h1,
+    h1,
+    .h1 {
+        font-size: 1.25rem !important;
+    }
+
+    .metric-card span,
+    .metric-card strong,
+    .metric-card small,
+    .hero p,
+    .subtitle,
+    .subtext,
+    .text-muted {
+        font-size: 0.92rem !important;
+    }
+
+    .table-responsive table {
+        min-width: 100% !important;
+    }
+}
+
+:root {
+    --surface: #ffffff;
+    --surface-soft: #f8fafc;
+    --border: #e2e8f0;
+    --text: #0f172a;
+    --muted: #64748b;
+}
+
+.page,
+.container {
+    max-width: 1280px !important;
+}
+
+.container,
+.card,
+.login-card,
+.login-box,
+.register-card,
+.table-card,
+.form-card,
+.panel,
+.welcome,
+.table-box {
+    border-radius: 12px !important;
+    padding: 16px !important;
+}
+
+.login-card,
+.login-box,
+.register-card {
+    max-width: 440px !important;
+}
+
+.topbar,
+.header {
+    padding: 14px 18px !important;
+}
+
+.cards,
+.card-box,
+.dashboard-cards,
+.layout,
+.row,
+.shift-box {
+    gap: 12px !important;
+}
+
+.cards .card,
+.card-box .card,
+.stat-card {
+    padding: 15px !important;
+}
+
+h1 {
+    font-size: 1.65rem !important;
+    line-height: 1.2 !important;
+}
+
+h2 {
+    font-size: 1.35rem !important;
+    line-height: 1.2 !important;
+}
+
+h3 {
+    font-size: 1.08rem !important;
+}
+
+h4,
+h5 {
+    font-size: 0.95rem !important;
+}
+
+p {
+    margin-bottom: 0.6rem !important;
+}
+
+label {
+    margin-bottom: 4px !important;
+    font-size: 0.84rem !important;
+}
+
+input,
+select,
+textarea {
+    min-height: 40px !important;
+    padding: 8px 12px !important;
+    margin-bottom: 10px !important;
+    border-radius: 10px !important;
+    font-size: 0.9rem !important;
+}
+
+textarea {
+    min-height: 90px !important;
+}
+
+button,
+.button,
+.btn,
+.back,
+.back-btn,
+.logout,
+.link,
+a.button {
+    min-height: 40px !important;
+    padding: 8px 14px !important;
+    border-radius: 10px !important;
+    font-size: 0.9rem !important;
+}
+
+table {
+    font-size: 0.9rem !important;
+}
+
+th,
+td {
+    padding: 10px 12px !important;
+}
+
+.main {
+    padding: 16px !important;
+}
+
+.sidebar {
+    width: 240px !important;
+    max-width: 240px !important;
+    min-width: 220px !important;
+}
+
+.hero p,
+.subtitle,
+.subtext,
+.text-muted {
+    font-size: 0.9rem !important;
+}
+
+.table-responsive {
+    overflow-x: auto !important;
+    width: 100% !important;
+}
+
+@media (max-width: 1024px) {
+    .sidebar {
+        width: 100% !important;
+        position: relative !important;
+    }
+}
+
+@media (max-width: 768px) {
+    html {
+        font-size: 13px;
+    }
+
+    body {
+        padding: 0 !important;
+    }
+
+    .container,
+    .page,
+    .login-card,
+    .login-box,
+    .register-card {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .cards,
+    .card-box,
+    .layout,
+    .metric-grid,
+    .bed-grid,
+    .action-grid,
+    .dashboard-layout {
+        grid-template-columns: 1fr !important;
+    }
+
+    .sidebar .nav {
+        display: grid !important;
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+    }
+
+    .sidebar .nav-link {
+        padding: 12px 14px !important;
+    }
+
+    .sidebar-footer {
+        display: none !important;
+    }
+
+    .topnav .form-control {
+        width: 100% !important;
+        max-width: 100% !important;
+    }
+
+    .btn,
+    button,
+    .button,
+    a.button,
+    .submit {
+        width: 100% !important;
+    }
+}
+
+@media (max-width: 576px) {
+    html {
+        font-size: 12px;
+    }
+
+    .page-head h1,
+    h1,
+    .h1 {
+        font-size: 1.3rem !important;
+    }
+
+    .table-responsive table {
+        min-width: 100% !important;
+    }
+}

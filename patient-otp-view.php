@@ -37,6 +37,7 @@ $result = $stmt->get_result();
         th, td { border:1px solid #ccc; padding:10px; text-align:center; }
         th { background:#007bff; color:white; }
     </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>

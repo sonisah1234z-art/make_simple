@@ -34,6 +34,7 @@ h2{
     color:#2c7be5;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 <body>

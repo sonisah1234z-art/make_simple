@@ -113,6 +113,7 @@ $result = mysqli_query($conn, "SELECT * FROM emergency_alerts ORDER BY id DESC")
             }
         }
     </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
     <div class="page-wrapper">

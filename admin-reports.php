@@ -105,6 +105,7 @@ if ($result) {
         .bar-label { min-width: 70px; font-size: 11px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

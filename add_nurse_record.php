@@ -2,10 +2,21 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-$conn = mysqli_connect("localhost","root","","hospital_db");
+require_once 'auth.php';
+require_nurse();
+require_once 'db.php';
 
-if(!$conn){
-    die("Database connection failed: " . mysqli_connect_error());
+foreach ([
+    'patient_id INT NULL',
+    'vitals VARCHAR(255)',
+    'note TEXT',
+    "attendance VARCHAR(20) DEFAULT 'Present'"
+] as $columnDefinition) {
+    $columnName = strtok($columnDefinition, ' ');
+    $columnCheck = $conn->query("SHOW COLUMNS FROM nurse_records LIKE '$columnName'");
+    if ($columnCheck && $columnCheck->num_rows === 0) {
+        $conn->query("ALTER TABLE nurse_records ADD COLUMN $columnDefinition");
+    }
 }
 
 $message = "";
@@ -19,19 +30,19 @@ if($_SERVER['REQUEST_METHOD'] == 'POST')
 
     if($patient_name != "" && $vitals != "")
     {
-        $sql = "INSERT INTO nurse_records
-                (patient_name,vitals,note,attendance)
-                VALUES
-                ('$patient_name','$vitals','$note','$attendance')";
+        $stmt = $conn->prepare("INSERT INTO nurse_records (nurse_id, patient_name, vitals, note, attendance) VALUES (?, ?, ?, ?, ?)");
+        $nurse_id = (int)$_SESSION['nurse_id'];
+        $stmt->bind_param('issss', $nurse_id, $patient_name, $vitals, $note, $attendance);
 
-        if(mysqli_query($conn,$sql))
+        if($stmt->execute())
         {
             $message = "Record Saved Successfully";
         }
         else
         {
-            $message = "Error: " . mysqli_error($conn);
+            $message = "Error: " . $conn->error;
         }
+        $stmt->close();
     }
     else
     {
@@ -117,6 +128,7 @@ button:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 <body>

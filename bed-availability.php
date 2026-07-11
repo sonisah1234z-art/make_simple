@@ -3,14 +3,15 @@ session_start();
 require_once 'auth.php';
 require_once 'db.php';
 
-if (!isset($_SESSION['admin_id']) && !isset($_SESSION['patient_id'])) {
+if (!isset($_SESSION['admin_id']) && !isset($_SESSION['patient_id']) && !isset($_SESSION['receptionist_id'])) {
     header('Location: login.php');
     exit();
 }
 
 $isAdmin = isset($_SESSION['admin_id']);
-$pageTitle = $isAdmin ? 'Bed Inventory Management' : 'Live Bed Availability';
-$currentName = $isAdmin ? $_SESSION['admin_name'] : $_SESSION['patient_name'];
+$isReceptionist = isset($_SESSION['receptionist_id']);
+$pageTitle = $isAdmin ? 'Bed Inventory Management' : ($isReceptionist ? 'Receptionist Bed Availability' : 'Live Bed Availability');
+$currentName = $isAdmin ? $_SESSION['admin_name'] : ($isReceptionist ? $_SESSION['receptionist_name'] : $_SESSION['patient_name']);
 $message = '';
 $error = '';
 

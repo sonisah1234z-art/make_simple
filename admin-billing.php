@@ -141,6 +141,7 @@ if ($result) {
         .form-inline button { padding: 6px 10px; font-size: 10px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

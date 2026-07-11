@@ -125,6 +125,7 @@ $bookings = $conn->query('SELECT ab.*, d.name as driver_name, a.vehicle_number F
     .status.Cancelled { background: rgba(239, 68, 68, 0.2); color: #fca5a5; }
     @media (max-width: 480px) { .topbar { flex-direction: column; align-items: flex-start; } .stats-grid { grid-template-columns: repeat(2, 1fr); } .card { padding: 16px; } .form-row { grid-template-columns: 1fr; } }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

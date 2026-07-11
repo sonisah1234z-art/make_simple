@@ -2,13 +2,22 @@
 error_reporting(E_ALL);
 ini_set('display_errors', 1);
 
-session_start();
+require_once 'auth.php';
+require_pharmacist();
 include "db.php";
+include_once "announcements.php";
+ensure_medicines_table($conn);
+ensure_medicine_orders_table($conn);
 
-/* LOGIN CHECK */
-if(!isset($_SESSION['role']) || $_SESSION['role'] != 'Pharmacist'){
-    header("Location: pharmacist_login.php");
-    exit();
+function renderStockStatus($stock): string
+{
+    $stock = (int)($stock ?? 0);
+
+    if ($stock > 0) {
+        return "<span class='status-badge status-available'>Available</span>";
+    }
+
+    return "<span class='status-badge status-out'>Out of Stock</span>";
 }
 
 /* TOTAL MEDICINES */
@@ -28,7 +37,7 @@ $totalSales = mysqli_fetch_assoc($total_sales)['totalsales'];
 
 /* ALL MEDICINES */
 $medicine_result = mysqli_query($conn,
-"SELECT * FROM medicines");
+"SELECT * FROM medicines ORDER BY id ASC");
 
 /* LOW STOCK ALERT (Popup) */
 if($lowStock > 0){
@@ -138,16 +147,59 @@ table{
     background:white;
 }
 
+.table-responsive{
+    overflow-x:auto;
+    margin-top:20px;
+}
+
+th,
+td{
+    padding:12px 14px;
+    white-space:nowrap;
+    vertical-align:middle;
+}
+
 th{
     background:#2c3e50;
     color:white;
-    padding:10px;
+    text-align:left;
 }
 
 td{
-    padding:10px;
-    text-align:center;
+    text-align:left;
     border-bottom:1px solid #ddd;
+}
+
+td.center,
+th.center {
+    text-align:center;
+}
+
+@media (max-width: 767px) {
+    th,
+    td {
+        padding:10px 12px;
+    }
+}
+
+.status-badge{
+    display:inline-block;
+    padding:6px 10px;
+    border-radius:999px;
+    font-size:12px;
+    font-weight:bold;
+    text-transform:uppercase;
+    letter-spacing:0.04em;
+}
+
+.status-available{
+    background:#e8f8ef;
+    color:#1f8f4d;
+}
+
+.status-out{
+    background:#fdecea;
+    color:#c0392b;
 }
 
 .low{
@@ -155,6 +207,7 @@ td{
     font-weight:bold;
 }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 
@@ -168,6 +221,7 @@ td{
 <a href="add_medicine.php">Add Medicine</a>
 <a href="medicine_orders.php">Orders</a>
 <a href="#">Reports</a>
+<a href="about.php">About Us</a>
 
 </div>
 
@@ -209,6 +263,8 @@ td{
 </div>
 
 <!-- ALERT BOX -->
+<?php $context = get_current_user_context(); echo render_announcements_panel($conn, $context['role'], $context['id'], 3); ?>
+
 <?php if($lowStock > 0){ ?>
 <div class="alert-box">
     <img src="assets/icons/emergency.svg" class="icon"><strong>Warning!</strong> <?php echo $lowStock; ?> medicines are LOW IN STOCK. Please restock immediately.
@@ -218,65 +274,63 @@ td{
 <!-- LOW STOCK TABLE -->
 <h3 style="margin-top:30px;"><img src="assets/icons/emergency.svg" class="icon">Low Stock Medicines</h3>
 
+<div class="table-responsive">
 <table>
 <tr>
-<th>ID</th>
+<th class="center">ID</th>
 <th>Name</th>
-<th>Stock</th>
-<th>Price</th>
+<th class="center">Stock</th>
+<th class="center">Price</th>
 <th>Status</th>
 </tr>
 
 <?php
 $low_meds = mysqli_query($conn,
-"SELECT * FROM medicines WHERE stock < 20");
+"SELECT * FROM medicines WHERE stock < 20 ORDER BY id ASC");
+$lowDisplayIndex = 1;
 
-while($row = mysqli_fetch_assoc($low_meds))
-{
+while($row = mysqli_fetch_assoc($low_meds)) {
 ?>
 <tr>
-<td><?php echo $row['id']; ?></td>
+<td class="center"><?php echo $lowDisplayIndex++; ?></td>
 <td><?php echo $row['medicine_name']; ?></td>
-<td class="low"><?php echo $row['stock']; ?></td>
-<td><?php echo $row['price']; ?></td>
-<td class="low">LOW STOCK</td>
+<td class="center low"><?php echo $row['stock']; ?></td>
+<td class="center">Rs. <?php echo number_format((float)($row['price'] ?? 0), 2); ?></td>
+<td><?php echo renderStockStatus($row['stock']); ?></td>
 </tr>
 <?php } ?>
 </table>
+</div>
 
 <!-- ALL MEDICINES -->
 <h3 style="margin-top:30px;">📦 All Medicines</h3>
 
+<div class="table-responsive">
 <table>
 <tr>
-<th>ID</th>
+<th class="center">ID</th>
 <th>Name</th>
 <th>Category</th>
-<th>Stock</th>
-<th>Price</th>
+<th class="center">Stock</th>
+<th class="center">Price</th>
 <th>Status</th>
 </tr>
 
-<?php while($row = mysqli_fetch_assoc($medicine_result)) { ?>
+<?php
+$displayIndex = 1;
+while($row = mysqli_fetch_assoc($medicine_result)) { ?>
 <tr>
-<td><?php echo $row['id']; ?></td>
+<td class="center"><?php echo $displayIndex++; ?></td>
 <td><?php echo $row['medicine_name']; ?></td>
 <td><?php echo $row['category']; ?></td>
-<td><?php echo $row['stock']; ?></td>
-<td><?php echo $row['price']; ?></td>
-<td>
-<?php
-if($row['stock'] < 20){
-    echo "<span class='low'>LOW</span>";
-} else {
-    echo "OK";
-}
-?>
-</td>
+<td class="center"><?php echo $row['stock']; ?></td>
+<td class="center">Rs. <?php echo number_format((float)($row['price'] ?? 0), 2); ?></td>
+<td><?php echo renderStockStatus($row['stock']); ?></td>
 </tr>
 <?php } ?>
 
 </table>
+</div>
 
 </div>
 

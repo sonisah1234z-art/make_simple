@@ -1,5 +1,6 @@
 <?php
 include "db.php";
+ensure_medicine_orders_table($conn);
 
 // DELIVER MEDICINE
 
@@ -72,6 +73,7 @@ th{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 

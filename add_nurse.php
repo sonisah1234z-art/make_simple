@@ -1,3 +1,36 @@
+<?php
+require_once 'auth.php';
+require_admin();
+require_once 'db.php';
+
+$message = '';
+$error = '';
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['save'])) {
+    $nurse_name = trim($_POST['nurse_name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $department = trim($_POST['department'] ?? '');
+    $password = $_POST['password'] ?? '';
+
+    $username = trim($_POST['username'] ?? '');
+    if ($nurse_name === '' || $email === '' || $password === '' || $username === '') {
+        $error = 'Nurse name, username, email, and password are required.';
+    } else {
+        $hash = password_hash($password, PASSWORD_DEFAULT);
+        $stmt = $conn->prepare('INSERT INTO nurses (nurse_name, email, username, phone, department, password) VALUES (?, ?, ?, ?, ?, ?)');
+        $stmt->bind_param('ssssss', $nurse_name, $email, $username, $phone, $department, $hash);
+
+        if ($stmt->execute()) {
+            $message = 'Nurse added successfully.';
+        } else {
+            $error = 'Unable to add nurse. Email or username may already exist.';
+        }
+
+        $stmt->close();
+    }
+}
+?>
 <!DOCTYPE html>
 <html>
 <head>
@@ -119,6 +152,7 @@ button:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>
@@ -131,6 +165,12 @@ button:hover{
 
 <h2>Add New Nurse</h2>
 
+<?php if ($message): ?>
+<div style="background:#dcfce7;color:#166534;padding:12px;border-radius:8px;margin-bottom:15px;"><?php echo htmlspecialchars($message); ?></div>
+<?php elseif ($error): ?>
+<div style="background:#fee2e2;color:#991b1b;padding:12px;border-radius:8px;margin-bottom:15px;"><?php echo htmlspecialchars($error); ?></div>
+<?php endif; ?>
+
 <div class="card-box">
     <div class="card card1">👩‍⚕ Nurse</div>
     <div class="card card2">🏥 Hospital</div>
@@ -141,6 +181,9 @@ button:hover{
 
 <label>Nurse Name</label>
 <input type="text" name="nurse_name" placeholder="Enter Nurse Name" required>
+
+<label>Username</label>
+<input type="text" name="username" placeholder="Enter Username" required>
 
 <label>Email</label>
 <input type="email" name="email" placeholder="Enter Email" required>
@@ -160,7 +203,7 @@ button:hover{
 
 </form>
 
-<a href="admin_dashboard.php" class="back">
+<a href="admin-dashboard.php" class="back">
 ⬅ Back to Dashboard
 </a>
 

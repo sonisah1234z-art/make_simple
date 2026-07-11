@@ -52,6 +52,7 @@ th{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 
@@ -83,7 +84,7 @@ th{
 
 <td><?php echo $row['category']; ?></td>
 
-<td>Rs. <?php echo $row['price']; ?></td>
+<td>Rs. <?php echo number_format((float)($row['price'] ?? 0), 2); ?></td>
 
 <td><?php echo $row['stock']; ?></td>
 

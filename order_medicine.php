@@ -1,5 +1,6 @@
 <?php
 include "db.php";
+ensure_medicine_orders_table($conn);
 
 if(!isset($_GET['id'])){
     die("Medicine ID Missing");
@@ -22,7 +23,7 @@ if(!$row){
 // MEDICINE DATA
 
 $medicine = $row['medicine_name'];
-$price = $row['price'];
+$price = isset($row['price']) ? (float)$row['price'] : 0.0;
 $stock = $row['stock'];
 
 // PATIENT DATA
@@ -98,6 +99,7 @@ a{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 

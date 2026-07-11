@@ -101,6 +101,7 @@ foreach ($billings as $billing) {
         th, td { padding: 6px 8px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

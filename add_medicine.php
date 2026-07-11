@@ -8,13 +8,14 @@ if(isset($_POST['add'])){
     $name = $_POST['medicine_name'];
     $category = $_POST['category'];
     $stock = $_POST['stock'];
+    $price = $_POST['price'];
     $expiry = $_POST['expiry'];
 
     $sql = "INSERT INTO medicines
-    (medicine_name, category, stock, expiry_date)
+    (medicine_name, category, stock, price, expiry_date)
 
     VALUES
-    ('$name','$category','$stock','$expiry')";
+    ('$name','$category','$stock','$price','$expiry')";
 
     if(mysqli_query($conn,$sql)){
         $message = "Medicine Added Successfully";
@@ -66,6 +67,7 @@ button{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 
@@ -96,6 +98,12 @@ required>
 <input type="number"
 name="stock"
 placeholder="Stock"
+required>
+
+<input type="number"
+name="price"
+placeholder="Price"
+step="0.01"
 required>
 
 <input type="date"

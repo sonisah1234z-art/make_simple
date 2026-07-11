@@ -1,5 +1,18 @@
 <?php
+require_once 'auth.php';
+if (!in_array($_SESSION['role'] ?? '', ['Admin', 'Nurse'], true)) {
+    header('Location: login.php');
+    exit();
+}
 include "db.php";
+
+$conn->query("CREATE TABLE IF NOT EXISTS nurse_shifts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    nurse_name VARCHAR(255) NOT NULL,
+    shift_type VARCHAR(100) NOT NULL,
+    shift_date DATE NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+)");
 
 $result = mysqli_query($conn,
 "SELECT * FROM nurse_shifts ORDER BY shift_date DESC");
@@ -140,6 +153,7 @@ tr:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 
 </head>
 
@@ -215,7 +229,7 @@ else{
 
 </table>
 
-<a href="admin_dashboard.php" class="back-btn">
+<a href="<?php echo ($_SESSION['role'] ?? '') === 'Nurse' ? 'nurse_dashboard.php' : 'admin-dashboard.php'; ?>" class="back-btn">
 ⬅ Back to Dashboard
 </a>
 

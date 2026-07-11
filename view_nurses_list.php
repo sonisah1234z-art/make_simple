@@ -1,4 +1,6 @@
 <?php
+require_once 'auth.php';
+require_admin();
 include "db.php";
 
 $result = mysqli_query($conn,"SELECT * FROM nurses");
@@ -133,6 +135,7 @@ tr:hover{
 }
 
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 
 <body>
@@ -171,6 +174,7 @@ tr:hover{
 <tr>
 <th>ID</th>
 <th>Name</th>
+<th>Username</th>
 <th>Email</th>
 <th>Phone</th>
 <th>Department</th>
@@ -184,6 +188,8 @@ tr:hover{
 <td><?php echo $row['id']; ?></td>
 
 <td><?php echo $row['nurse_name']; ?></td>
+
+<td><?php echo $row['username'] ?? '-'; ?></td>
 
 <td><?php echo $row['email']; ?></td>
 
@@ -210,7 +216,7 @@ Delete
 
 </table>
 
-<a href="admin_dashboard.php" class="back">
+<a href="admin-dashboard.php" class="back">
 ⬅ Back to Dashboard
 </a>
 

@@ -137,6 +137,7 @@ $organ_types = ['Kidney', 'Liver', 'Heart', 'Lungs', 'Pancreas', 'Intestine', 'C
         input, select, textarea { padding: 8px 10px; font-size: 12px; }
     }
 </style>
+<link rel="stylesheet" href="assets/css/compact-ui.css">
 </head>
 <body>
 <div class="page">

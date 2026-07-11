@@ -131,7 +131,17 @@ function createAppointmentOTP($appointmentId, $patientId, $conn, $adminId = null
     
     // Prepare email and send
     require_once 'send_email.php';
-    
+
+    $recipientEmail = trim((string)($appointment['email'] ?? ''));
+    if ($recipientEmail === '') {
+        return [
+            'success' => true,
+            'otp' => $otp,
+            'message' => 'OTP generated successfully, but no patient email address was found for delivery.',
+            'email_sent' => false
+        ];
+    }
+
     $emailSubject = "Appointment Approved - Verification OTP";
     $emailBody = getOTPEmailTemplate(
         $appointment['patient_name'],
@@ -141,13 +151,15 @@ function createAppointmentOTP($appointmentId, $patientId, $conn, $adminId = null
         $appointment['appointment_time'],
         $otp
     );
-    
-    $emailSent = sendEmail($appointment['email'], $emailSubject, $emailBody);
-    
+
+    $emailSent = sendEmail($recipientEmail, $emailSubject, $emailBody);
+
     return [
         'success' => true,
         'otp' => $otp,
-        'message' => 'OTP generated successfully. Email sent to ' . $appointment['email'],
+        'message' => $emailSent
+            ? 'OTP generated successfully. Email sent to ' . $recipientEmail
+            : 'OTP generated successfully, but email delivery could not be completed for ' . $recipientEmail,
         'email_sent' => $emailSent
     ];
 }
@@ -172,7 +184,7 @@ function verifyAppointmentOTP($otp, $appointmentId, $conn) {
     $stmt = $conn->prepare('
         SELECT ao.id, ao.verification_status, ao.expires_at, ao.verification_attempts, ao.verified_at,
                a.patient_id, a.status as appointment_status,
-               p.name as patient_name,
+               p.name as patient_name, p.email as patient_email,
                d.name as doctor_name, d.specialty,
                a.appointment_date, a.appointment_time
         FROM appointment_otps ao
@@ -246,7 +258,7 @@ function verifyAppointmentOTP($otp, $appointmentId, $conn) {
         $otpRecord['patient_name'],
         date('F j, Y at g:i A', strtotime($verifiedTime))
     );
-    sendEmail($otpRecord['patient_name'], $emailSubject, $emailBody);
+    sendEmail($otpRecord['patient_email'], $emailSubject, $emailBody);
     
     return [
         'success' => true,
