@@ -4,7 +4,7 @@ $host = '127.0.0.1';
 $username = 'root';
 $password = '';
 $database = 'hospital_system';
-$port = 3306;
+$port = 3320;
 
 $conn = new mysqli($host, $username, $password, $database, $port);
 
