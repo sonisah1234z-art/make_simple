@@ -3,6 +3,7 @@ require_once 'auth.php';
 require_admin();
 require_once 'db.php';
 require_once 'otp-management.php';
+require_once 'appointment_reminder_helper.php';
 
 $admin_name = $_SESSION['admin_name'];
 $admin_id = $_SESSION['admin_id'] ?? null;
@@ -42,6 +43,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $otp_message = 'OTP: ' . htmlspecialchars($otpResult['otp']);
                 } else {
                     $error = $otpResult['message'];
+                }
+
+                $reminderStmt = $conn->prepare(
+                    'SELECT a.id, a.patient_id, p.name AS patient_name, p.email, d.name AS doctor_name, d.specialty, a.appointment_date, a.appointment_time
+                    FROM appointments a
+                    JOIN patients p ON a.patient_id = p.id
+                    JOIN doctors d ON a.doctor_id = d.id
+                    WHERE a.id = ? LIMIT 1'
+                );
+                if ($reminderStmt) {
+                    $reminderStmt->bind_param('i', $appointment_id);
+                    $reminderStmt->execute();
+                    $detailResult = $reminderStmt->get_result();
+                    $approvedAppointment = $detailResult ? $detailResult->fetch_assoc() : null;
+                    $reminderStmt->close();
+
+                    if ($approvedAppointment) {
+                        scheduleAppointmentReminder($conn, $approvedAppointment, '24_hour');
+                        scheduleAppointmentReminder($conn, $approvedAppointment, '2_hour');
+                        scheduleAppointmentReminder($conn, $approvedAppointment, 'day_of');
+                    }
                 }
             } elseif ($status === 'Approved') {
                 $message = 'Appointment was already approved.';
@@ -87,6 +109,7 @@ if ($result) {
     th { color: #cbd5e1; font-weight: 700; }
     td { color: #e2e8f0; }
     select { width: auto; padding: 10px 12px; border-radius: 14px; border: 1px solid rgba(148,163,184,0.18); background: rgba(255,255,255,0.08); color: #f8fafc; }
+    .form-inline select option[value="Pending"], .form-inline select option[value="Approved"], .form-inline select option[value="Cancelled"] { color: #000000; }
     .status { display: inline-flex; align-items: center; padding: 8px 10px; border-radius: 999px; font-size: 13px; font-weight: 700; }
     .status.Pending { background: rgba(245,158,11,0.16); color: #f59e0b; }
     .status.Approved { background: rgba(34,197,94,0.16); color: #22c55e; }

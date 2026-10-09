@@ -30,12 +30,40 @@ try {
 
     runQuery($conn, "CREATE TABLE IF NOT EXISTS patients (
         id INT AUTO_INCREMENT PRIMARY KEY,
+        patient_code VARCHAR(50) UNIQUE NULL,
         name VARCHAR(255) NOT NULL,
-        email VARCHAR(255) UNIQUE NOT NULL,
+        email VARCHAR(255) UNIQUE NULL,
         phone VARCHAR(50),
-        password VARCHAR(255) NOT NULL,
+        date_of_birth DATE,
+        password VARCHAR(255) NULL,
+        patient_type VARCHAR(30) NOT NULL DEFAULT 'Online',
+        has_login TINYINT(1) NOT NULL DEFAULT 0,
+        department VARCHAR(255) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )", "Patients table ready.");
+
+    $patientsColumns = [
+        'patient_code' => "ALTER TABLE patients ADD COLUMN patient_code VARCHAR(50) UNIQUE NULL AFTER id",
+        'email' => "ALTER TABLE patients MODIFY COLUMN email VARCHAR(255) UNIQUE NULL",
+        'date_of_birth' => "ALTER TABLE patients ADD COLUMN date_of_birth DATE AFTER phone",
+        'password' => "ALTER TABLE patients MODIFY COLUMN password VARCHAR(255) NULL",
+        'patient_type' => "ALTER TABLE patients ADD COLUMN patient_type VARCHAR(30) NOT NULL DEFAULT 'Online' AFTER password",
+        'has_login' => "ALTER TABLE patients ADD COLUMN has_login TINYINT(1) NOT NULL DEFAULT 0 AFTER patient_type",
+        'department' => "ALTER TABLE patients ADD COLUMN department VARCHAR(255) DEFAULT NULL AFTER has_login"
+    ];
+
+    $columnResult = $conn->query("SHOW COLUMNS FROM patients");
+    if ($columnResult) {
+        $existingPatientColumns = [];
+        while ($column = $columnResult->fetch_assoc()) {
+            $existingPatientColumns[] = $column['Field'];
+        }
+        foreach ($patientsColumns as $column => $alterSql) {
+            if (!in_array($column, $existingPatientColumns, true)) {
+                $conn->query($alterSql);
+            }
+        }
+    }
 
     runQuery($conn, "CREATE TABLE IF NOT EXISTS doctors (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -100,6 +128,22 @@ try {
         FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE
     )", "Billings table ready.");
 
+    runQuery($conn, "CREATE TABLE IF NOT EXISTS notifications (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        patient_id INT NOT NULL,
+        appointment_id INT DEFAULT NULL,
+        reminder_type VARCHAR(50) DEFAULT NULL,
+        title VARCHAR(255) DEFAULT NULL,
+        message TEXT NOT NULL,
+        is_read TINYINT(1) NOT NULL DEFAULT 0,
+        send_at DATETIME DEFAULT NULL,
+        delivered_at DATETIME DEFAULT NULL,
+        expires_at DATETIME DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (patient_id) REFERENCES patients(id) ON DELETE CASCADE,
+        UNIQUE KEY uniq_appointment_reminder (appointment_id, reminder_type)
+    )", "Notifications table ready.");
+
     runQuery($conn, "CREATE TABLE IF NOT EXISTS nurses (
         id INT AUTO_INCREMENT PRIMARY KEY,
         nurse_name VARCHAR(255) NOT NULL,
@@ -114,6 +158,7 @@ try {
         id INT AUTO_INCREMENT PRIMARY KEY,
         name VARCHAR(255) NOT NULL,
         username VARCHAR(100) UNIQUE NOT NULL,
+        email VARCHAR(255) UNIQUE NULL,
         password VARCHAR(255) NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )", "Pharmacists table ready.");
@@ -190,6 +235,21 @@ try {
         status VARCHAR(50) NOT NULL DEFAULT 'Pending',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )", "Medicine orders table ready.");
+
+    runQuery($conn, "CREATE TABLE IF NOT EXISTS medicine_expiry_alerts (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        medicine_id INT NOT NULL,
+        alert_message VARCHAR(255) DEFAULT NULL,
+        expiry_date DATE DEFAULT NULL,
+        alert_status ENUM('Pending','Acknowledged') NOT NULL DEFAULT 'Pending',
+        acknowledgement_comment TEXT NULL,
+        acknowledged_by VARCHAR(255) DEFAULT NULL,
+        acknowledged_at DATETIME NULL DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at DATETIME NULL DEFAULT NULL,
+        UNIQUE KEY unique_medicine_alert (medicine_id),
+        FOREIGN KEY (medicine_id) REFERENCES medicines(id) ON DELETE CASCADE
+    )", "Medicine expiry alerts table ready.");
 
     runQuery($conn, "CREATE TABLE IF NOT EXISTS drivers (
         id INT AUTO_INCREMENT PRIMARY KEY,
@@ -385,11 +445,11 @@ try {
     $stmt->execute();
     echo "Default nurse ready: email=nurse@hospital.com, password=nurse123<br>";
 
-    $receptionistPassword = password_hash('receptionist123', PASSWORD_DEFAULT);
+    $receptionistPassword = password_hash('reception123', PASSWORD_DEFAULT);
     $stmt = $conn->prepare("INSERT IGNORE INTO receptionists (name, username, password) VALUES ('Hospital Receptionist', 'receptionist', ?)");
     $stmt->bind_param('s', $receptionistPassword);
     $stmt->execute();
-    echo "Default receptionist ready: username=receptionist, password=receptionist123<br>";
+    echo "Default receptionist ready: username=receptionist, password=reception123<br>";
 
     $conn->query("INSERT IGNORE INTO doctors (name, specialty, email, phone) VALUES
         ('Dr. Sara Khan', 'General Physician', 'sara.khan@hospital.com', '+1234567890'),

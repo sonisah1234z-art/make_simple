@@ -135,8 +135,11 @@ table th{
     <a href="view_patients.php">Patients</a>
     <a href="view_appointments.php">Appointments</a>
     <a href="view_doctors.php">Doctors</a>
+    <a href="receptionist-billing.php">Billing</a>
     <a href="bed-availability.php">Beds</a>
-    <a href="ambulance-booking.php">Ambulances</a>
+    <a href="admin-ambulance.php">Ambulances</a>
+    <a href="leave_request.php">Leave</a>
+    <a href="leave_history.php">Leave History</a>
     <a href="about.php">About Us</a>
     <a href="logout.php">Logout</a>
 </div>

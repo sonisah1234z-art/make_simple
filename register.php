@@ -1,31 +1,78 @@
 <?php
 session_start();
 include 'db.php';
+require_once 'auth.php';
 
 $error = '';
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $name = $conn->real_escape_string($_POST['name']);
-    $email = $conn->real_escape_string($_POST['email']);
-    $phone = $conn->real_escape_string($_POST['phone']);
-    $password = $_POST['password'];
-    $confirm = $_POST['confirm_password'];
+    $name = trim($_POST['name'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $phone = trim($_POST['phone'] ?? '');
+    $date_of_birth = trim($_POST['date_of_birth'] ?? '');
+    $password = $_POST['password'] ?? '';
+    $confirm = $_POST['confirm_password'] ?? '';
 
-    if ($password !== $confirm) {
+    if (empty($name) || empty($email) || empty($phone) || empty($password)) {
+        $error = 'All fields are required';
+    } elseif ($password !== $confirm) {
         $error = 'Passwords do not match';
+    } elseif (strlen($password) < 6) {
+        $error = 'Password must be at least 6 characters';
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $error = 'Please enter a valid email address';
+    } elseif ($date_of_birth !== '' && !DateTime::createFromFormat('Y-m-d', $date_of_birth)) {
+        $error = 'Please enter a valid Date of Birth in YYYY-MM-DD format.';
     } else {
-        $result = $conn->query("SELECT id FROM patients WHERE email = '$email'");
-        if ($result && $result->num_rows > 0) {
-            $error = 'This email is already registered';
-        } else {
-            $hash = password_hash($password, PASSWORD_DEFAULT);
-            $sql = "INSERT INTO patients (name, email, phone, password) VALUES ('$name', '$email', '$phone', '$hash')";
-            if ($conn->query($sql) === TRUE) {
-                header('Location: login.php?registered=1');
-                exit();
+        // Check if email already exists using prepared statement
+        $checkStmt = $conn->prepare("SELECT id FROM patients WHERE LOWER(email) = LOWER(?)");
+        if ($checkStmt) {
+            $checkStmt->bind_param('s', $email);
+            $checkStmt->execute();
+            $checkResult = $checkStmt->get_result();
+            if ($checkResult && $checkResult->num_rows > 0) {
+                $error = 'This email is already registered';
             } else {
-                $error = 'Unable to create account, try again later';
+                $hash = password_hash($password, PASSWORD_DEFAULT);
+                $dobValue = $date_of_birth !== '' ? $date_of_birth : null;
+                $patientType = 'Online';
+
+                // Use prepared statement for insert
+                $insertStmt = $conn->prepare("INSERT INTO patients (name, email, phone, date_of_birth, password, patient_type) VALUES (?, ?, ?, ?, ?, ?)");
+                if ($insertStmt) {
+                    $insertStmt->bind_param('ssssss', $name, $email, $phone, $dobValue, $hash, $patientType);
+                    if ($insertStmt->execute()) {
+                        $newPatientId = $conn->insert_id;
+                        if ($newPatientId > 0) {
+                            $patientCode = 'P-' . str_pad((string)$newPatientId, 4, '0', STR_PAD_LEFT);
+                            $codeStmt = $conn->prepare('UPDATE patients SET patient_code = ? WHERE id = ?');
+                            if ($codeStmt) {
+                                $codeStmt->bind_param('si', $patientCode, $newPatientId);
+                                $codeStmt->execute();
+                                $codeStmt->close();
+                            }
+
+                            set_role_session('Patient', [
+                                'id' => $newPatientId,
+                                'name' => $name,
+                            ]);
+
+                            header('Location: dashboard.php');
+                            exit();
+                        }
+                        header('Location: login.php?registered=1');
+                        exit();
+                    } else {
+                        $error = 'Unable to create account: ' . $insertStmt->error;
+                    }
+                    $insertStmt->close();
+                } else {
+                    $error = 'Database error, please try again later';
+                }
             }
+            $checkStmt->close();
+        } else {
+            $error = 'Database connection error';
         }
     }
 }
@@ -133,6 +180,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <div class="field">
             <label for="email">Email</label>
             <input id="email" type="email" name="email" placeholder="patient@example.com" required>
+        </div>
+        <div class="field">
+            <label for="date_of_birth">Date of Birth</label>
+            <input id="date_of_birth" type="date" name="date_of_birth" placeholder="YYYY-MM-DD" required>
         </div>
         <div class="field">
             <label for="phone">Phone</label>

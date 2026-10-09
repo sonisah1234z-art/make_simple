@@ -41,9 +41,12 @@ $completedCount = $completed ? (int)$completed->fetch_assoc()['total'] : 0;
 <div class="container">
     <h2>Lab Reports Management</h2>
     <div class="card">
-        <div style="display:flex;gap:20px;align-items:center;justify-content:space-between">
+        <div style="display:flex;gap:20px;align-items:center;justify-content:space-between;flex-wrap:wrap">
             <div>
                 <strong>Total:</strong> <?php echo $totalCount; ?> &nbsp; <strong>Pending:</strong> <?php echo $pendingCount; ?> &nbsp; <strong>Completed:</strong> <?php echo $completedCount; ?>
+            </div>
+            <div>
+                <a class="btn btn-primary" href="admin_lab_assign_work.php">Assign New Work</a>
             </div>
             <div class="filters">
                 <form method="GET">
@@ -76,7 +79,6 @@ $completedCount = $completed ? (int)$completed->fetch_assoc()['total'] : 0;
                     <td><?php echo htmlspecialchars($r['report_date']); ?></td>
                     <td><?php if (!empty($r['file'])): ?><a href="uploads/<?php echo htmlspecialchars($r['file']); ?>" target="_blank">Download</a><?php else: ?>-<?php endif; ?></td>
                     <td>
-                        <a href="lab_report_view.php?id=<?php echo (int)$r['id']; ?>">View</a>
                         <a href="lab_report_edit.php?id=<?php echo (int)$r['id']; ?>">Edit</a>
                     </td>
                 </tr>

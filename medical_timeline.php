@@ -6,6 +6,14 @@ ensure_lab_tests_table($conn);
 ensure_feedback_table($conn);
 ensure_medicine_orders_table($conn);
 
+$conn->query("CREATE TABLE IF NOT EXISTS payments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    patient_id INT NOT NULL,
+    amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
+    payment_status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
 $patient_id = current_patient_id();
 $patient_name = $_SESSION['patient_name'] ?? '';
 $timeline = [];
@@ -33,7 +41,13 @@ if ($result = $conn->query($appointment_sql)) {
 
 /* Payments */
 $payment_sql = "SELECT id, amount, payment_status, created_at FROM payments WHERE patient_id = " . intval($patient_id) . " ORDER BY created_at DESC";
-if ($result = $conn->query($payment_sql)) {
+try {
+    $result = $conn->query($payment_sql);
+} catch (mysqli_sql_exception $e) {
+    $result = false;
+}
+
+if ($result) {
     while ($row = $result->fetch_assoc()) {
         $timestamp = strtotime($row['created_at']) ?: 0;
         $status = $row['payment_status'];

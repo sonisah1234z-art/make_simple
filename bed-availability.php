@@ -15,22 +15,8 @@ $currentName = $isAdmin ? $_SESSION['admin_name'] : ($isReceptionist ? $_SESSION
 $message = '';
 $error = '';
 
-$conn->query("CREATE TABLE IF NOT EXISTS beds (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    bed_number VARCHAR(50) UNIQUE,
-    ward VARCHAR(100),
-    is_icu TINYINT(1),
-    status VARCHAR(50),
-    bed_type VARCHAR(20) NOT NULL DEFAULT 'General',
-    patient_id INT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)");
-
-$bedTypeColumn = $conn->query("SHOW COLUMNS FROM beds LIKE 'bed_type'");
-if ($bedTypeColumn && $bedTypeColumn->num_rows === 0) {
-    $conn->query("ALTER TABLE beds ADD COLUMN bed_type VARCHAR(20) NOT NULL DEFAULT 'General'");
-    $conn->query("UPDATE beds SET bed_type='ICU' WHERE is_icu = 1");
-}
+ensure_beds_schema($conn);
+$patientList = $conn->query('SELECT id, name, patient_type FROM patients ORDER BY name ASC');
 
 if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['add_bed'])) {
@@ -39,16 +25,31 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $bed_type = in_array($_POST['bed_type'] ?? '', ['General', 'Emergency', 'ICU']) ? $_POST['bed_type'] : 'General';
         $status = in_array($_POST['status'] ?? '', ['Available', 'Occupied', 'Reserved']) ? $_POST['status'] : 'Available';
         $is_icu = $bed_type === 'ICU' ? 1 : 0;
+        $patient_id = (int)($_POST['patient_id'] ?? 0);
+        $patient_id = $patient_id > 0 ? $patient_id : null;
+        if ($patient_id !== null && $status === 'Available') {
+            $status = 'Occupied';
+        }
 
         if ($bed_number && $ward) {
-            $stmt = $conn->prepare('INSERT INTO beds (bed_number, ward, is_icu, bed_type, status) VALUES (?, ?, ?, ?, ?)');
-            $stmt->bind_param('sisss', $bed_number, $ward, $is_icu, $bed_type, $status);
-            if ($stmt->execute()) {
-                $message = 'Bed added successfully.';
+            $stmt = $conn->prepare('INSERT INTO beds (bed_number, ward, is_icu, bed_type, status, patient_id) VALUES (?, ?, ?, ?, ?, ?)');
+            if ($stmt) {
+                $stmt->bind_param('sisssi', $bed_number, $ward, $is_icu, $bed_type, $status, $patient_id);
+                try {
+                    if ($stmt->execute()) {
+                        $message = 'Bed added successfully.';
+                    }
+                } catch (mysqli_sql_exception $e) {
+                    if ($e->getCode() === 1062) {
+                        $error = 'Unable to add bed. Bed number already exists.';
+                    } else {
+                        $error = 'Unable to add bed. ' . $e->getMessage();
+                    }
+                }
+                $stmt->close();
             } else {
-                $error = 'Unable to add bed. Bed number may already exist.';
+                $error = 'Unable to prepare bed insert query: ' . $conn->error;
             }
-            $stmt->close();
         } else {
             $error = 'Bed number and ward are required.';
         }
@@ -59,16 +60,40 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $bed_type = in_array($_POST['bed_type'] ?? '', ['General', 'Emergency', 'ICU']) ? $_POST['bed_type'] : 'General';
         $status = in_array($_POST['status'] ?? '', ['Available', 'Occupied', 'Reserved']) ? $_POST['status'] : 'Available';
         $is_icu = $bed_type === 'ICU' ? 1 : 0;
+        $patient_id = (int)($_POST['patient_id'] ?? 0);
+        $patient_id = $patient_id > 0 ? $patient_id : null;
+        if ($patient_id !== null && $status === 'Available') {
+            $status = 'Occupied';
+        }
 
         if ($bed_id && $bed_number && $ward) {
-            $stmt = $conn->prepare('UPDATE beds SET bed_number = ?, ward = ?, is_icu = ?, bed_type = ?, status = ? WHERE id = ?');
-            $stmt->bind_param('sisssi', $bed_number, $ward, $is_icu, $bed_type, $status, $bed_id);
-            if ($stmt->execute()) {
-                $message = 'Bed updated successfully.';
+            $existingBedStmt = $conn->prepare('SELECT status, patient_id FROM beds WHERE id = ? LIMIT 1');
+            if ($existingBedStmt) {
+                $existingBedStmt->bind_param('i', $bed_id);
+                $existingBedStmt->execute();
+                $existingBedResult = $existingBedStmt->get_result();
+                $existingBed = $existingBedResult ? $existingBedResult->fetch_assoc() : null;
+                $existingBedStmt->close();
             } else {
-                $error = 'Unable to update bed.';
+                $existingBed = null;
             }
-            $stmt->close();
+
+            if ($existingBed && $existingBed['status'] === 'Occupied' && $existingBed['patient_id'] !== null && $patient_id !== null && $patient_id !== (int)$existingBed['patient_id'] && $status === 'Occupied') {
+                $error = 'This bed is already occupied. Mark it available before assigning a new patient.';
+            } else {
+                $stmt = $conn->prepare('UPDATE beds SET bed_number = ?, ward = ?, is_icu = ?, bed_type = ?, status = ?, patient_id = ? WHERE id = ?');
+                if ($stmt) {
+                    $stmt->bind_param('ssissii', $bed_number, $ward, $is_icu, $bed_type, $status, $patient_id, $bed_id);
+                    if ($stmt->execute()) {
+                        $message = 'Bed updated successfully.';
+                    } else {
+                        $error = 'Unable to update bed.';
+                    }
+                    $stmt->close();
+                } else {
+                    $error = 'Unable to prepare bed update query: ' . $conn->error;
+                }
+            }
         } else {
             $error = 'Bed number and ward are required for update.';
         }
@@ -76,13 +101,17 @@ if ($isAdmin && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $bed_id = (int)($_POST['bed_id'] ?? 0);
         if ($bed_id) {
             $stmt = $conn->prepare('DELETE FROM beds WHERE id = ?');
-            $stmt->bind_param('i', $bed_id);
-            if ($stmt->execute()) {
-                $message = 'Bed removed successfully.';
+            if ($stmt) {
+                $stmt->bind_param('i', $bed_id);
+                if ($stmt->execute()) {
+                    $message = 'Bed removed successfully.';
+                } else {
+                    $error = 'Unable to remove bed.';
+                }
+                $stmt->close();
             } else {
-                $error = 'Unable to remove bed.';
+                $error = 'Unable to prepare bed delete query: ' . $conn->error;
             }
-            $stmt->close();
         }
     }
 }
@@ -110,6 +139,61 @@ function bedTypeClass(string $type): string
     return 'badge-type-General';
 }
 
+function ensure_beds_schema(mysqli $conn): void
+{
+    ensure_db_connection($conn);
+
+    $tableCreated = $conn->query("CREATE TABLE IF NOT EXISTS beds (
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        bed_number VARCHAR(50) UNIQUE,
+        ward VARCHAR(100),
+        is_icu TINYINT(1),
+        status VARCHAR(50) DEFAULT 'Available',
+        bed_type VARCHAR(20) NOT NULL DEFAULT 'General',
+        patient_id INT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    if ($tableCreated === false) {
+        error_log('Failed to create beds table: ' . $conn->error);
+    }
+
+    $requiredColumns = [
+        'bed_type' => "VARCHAR(20) NOT NULL DEFAULT 'General'",
+        'status' => "VARCHAR(50) DEFAULT 'Available'",
+        'is_icu' => 'TINYINT(1) DEFAULT 0',
+        'patient_id' => 'INT NULL',
+        'created_at' => 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP'
+    ];
+
+    $existingColumns = [];
+    $columnsResult = $conn->query('SHOW COLUMNS FROM beds');
+    if ($columnsResult) {
+        while ($column = $columnsResult->fetch_assoc()) {
+            $existingColumns[] = $column['Field'];
+        }
+    }
+
+    foreach ($requiredColumns as $column => $definition) {
+        if (!in_array($column, $existingColumns, true)) {
+            $conn->query("ALTER TABLE beds ADD COLUMN $column $definition");
+        }
+    }
+}
+
+function fetch_count(mysqli $conn, string $sql): int
+{
+    $result = $conn->query($sql);
+    if (!($result instanceof mysqli_result)) {
+        return 0;
+    }
+
+    $row = $result->fetch_assoc();
+    $result->free();
+    return (int)($row['total'] ?? 0);
+}
+
+ensure_beds_schema($conn);
+
 $counts = [
     'total' => 0,
     'available' => 0,
@@ -118,19 +202,13 @@ $counts = [
     'emergency_available' => 0,
 ];
 
-$totals = $conn->query("SELECT COUNT(*) AS total FROM beds");
-if ($totals) {
-    $counts['total'] = (int)$totals->fetch_assoc()['total'];
-}
-$available = $conn->query("SELECT COUNT(*) AS total FROM beds WHERE status = 'Available'");
-if ($available) {
-    $counts['available'] = (int)$available->fetch_assoc()['total'];
-}
-$counts['icu_available'] = (int)$conn->query("SELECT COUNT(*) AS total FROM beds WHERE bed_type = 'ICU' AND status = 'Available'")->fetch_assoc()['total'];
-$counts['general_available'] = (int)$conn->query("SELECT COUNT(*) AS total FROM beds WHERE bed_type = 'General' AND status = 'Available'")->fetch_assoc()['total'];
-$counts['emergency_available'] = (int)$conn->query("SELECT COUNT(*) AS total FROM beds WHERE bed_type = 'Emergency' AND status = 'Available'")->fetch_assoc()['total'];
+$counts['total'] = fetch_count($conn, 'SELECT COUNT(*) AS total FROM beds');
+$counts['available'] = fetch_count($conn, "SELECT COUNT(*) AS total FROM beds WHERE patient_id IS NULL AND status = 'Available'");
+$counts['icu_available'] = fetch_count($conn, "SELECT COUNT(*) AS total FROM beds WHERE bed_type = 'ICU' AND patient_id IS NULL AND status = 'Available'");
+$counts['general_available'] = fetch_count($conn, "SELECT COUNT(*) AS total FROM beds WHERE bed_type = 'General' AND patient_id IS NULL AND status = 'Available'");
+$counts['emergency_available'] = fetch_count($conn, "SELECT COUNT(*) AS total FROM beds WHERE bed_type = 'Emergency' AND patient_id IS NULL AND status = 'Available'");
 
-$bedList = $conn->query('SELECT * FROM beds ORDER BY created_at DESC');
+$bedList = $conn->query("SELECT b.*, p.name AS patient_name, p.patient_type, CASE WHEN b.patient_id IS NOT NULL THEN 'Occupied' ELSE b.status END AS effective_status FROM beds b LEFT JOIN patients p ON p.id = b.patient_id ORDER BY b.created_at DESC");
 ?>
 
 <?php include 'header.php'; ?>
@@ -222,6 +300,18 @@ $bedList = $conn->query('SELECT * FROM beds ORDER BY created_at DESC');
                             <option value="Reserved">Reserved</option>
                         </select>
                     </div>
+                    <div class="mb-3">
+                        <label class="form-label">Assign Patient (optional)</label>
+                        <select name="patient_id" class="form-select">
+                            <option value="">None</option>
+                            <?php if ($patientList): ?>
+                                <?php while ($patientOption = $patientList->fetch_assoc()): ?>
+                                    <option value="<?php echo (int)$patientOption['id']; ?>"><?php echo htmlspecialchars($patientOption['name'] . ' (' . ($patientOption['patient_type'] ?: 'Online') . ')'); ?></option>
+                                <?php endwhile; ?>
+                            <?php endif; ?>
+                        </select>
+                        <div class="form-text">Selecting a patient will automatically mark the bed as Occupied.</div>
+                    </div>
                     <button class="btn btn-primary w-100" type="submit" name="add_bed">Add Bed</button>
                 </form>
             </div>
@@ -236,6 +326,8 @@ $bedList = $conn->query('SELECT * FROM beds ORDER BY created_at DESC');
                                 <th>Bed #</th>
                                 <th>Ward</th>
                                 <th>Type</th>
+                                <th>Patient</th>
+                                <th>Type</th>
                                 <th>Status</th>
                                 <th class="text-end">Actions</th>
                             </tr>
@@ -247,7 +339,9 @@ $bedList = $conn->query('SELECT * FROM beds ORDER BY created_at DESC');
                                         <td class="bed-table-cell bed-table-bed-number"><?php echo htmlspecialchars($bed['bed_number']); ?></td>
                                         <td class="bed-table-cell bed-table-ward"><?php echo htmlspecialchars($bed['ward']); ?></td>
                                         <td><span class="badge <?php echo bedTypeClass($bed['bed_type']); ?>"><?php echo htmlspecialchars($bed['bed_type']); ?></span></td>
-                                        <td><span class="status-pill status-<?php echo $bed['status'] === 'Available' ? 'Available' : 'Offline'; ?>"><?php echo htmlspecialchars($bed['status']); ?></span></td>
+                                        <td><?php echo htmlspecialchars($bed['patient_name'] ?? 'N/A'); ?></td>
+                                        <td><?php echo htmlspecialchars($bed['patient_type'] ?? 'N/A'); ?></td>
+                                        <td><span class="status-pill status-<?php echo $bed['effective_status'] === 'Available' ? 'Available' : 'Offline'; ?>"><?php echo htmlspecialchars($bed['effective_status']); ?></span></td>
                                         <td>
                                             <form method="post" class="d-flex gap-2 justify-content-end flex-wrap">
                                                 <input type="hidden" name="bed_id" value="<?php echo $bed['id']; ?>">
@@ -262,7 +356,7 @@ $bedList = $conn->query('SELECT * FROM beds ORDER BY created_at DESC');
                                 <?php endwhile; ?>
                             <?php else: ?>
                                 <tr>
-                                    <td colspan="5" class="text-muted">No beds have been added yet.</td>
+                                    <td colspan="7" class="text-muted">No beds have been added yet.</td>
                                 </tr>
                             <?php endif; ?>
                         </tbody>

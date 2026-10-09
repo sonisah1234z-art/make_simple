@@ -1,10 +1,15 @@
 <?php
+session_start();
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 require_once 'auth.php';
 require_admin();
 require_once 'db.php';
 require_once 'announcements.php';
+require_once 'leave_management.php';
+ensure_leave_management_schema($conn);
 
-$admin_name = $_SESSION['admin_name'];
+$admin_name = $_SESSION['admin_name'] ?? $_SESSION['user_name'] ?? 'Hospital Admin';
 
 function fetchCount(string $sql): int
 {
@@ -41,26 +46,13 @@ $bedGeneralAvailable = fetchCount("SELECT COUNT(*) AS total FROM beds WHERE bed_
 $bedEmergencyAvailable = fetchCount("SELECT COUNT(*) AS total FROM beds WHERE bed_type = 'Emergency' AND status = 'Available'");
 $labReportsCount = fetchCount('SELECT COUNT(*) AS total FROM lab_tests');
 $labReportsPending = fetchCount("SELECT COUNT(*) AS total FROM lab_tests WHERE status = 'Pending'");
+$leaveHistoryCount = fetchCount('SELECT COUNT(*) AS total FROM leave_requests');
+$leaveHistoryPending = fetchCount("SELECT COUNT(*) AS total FROM leave_requests WHERE status = 'Pending'");
 $currentDate = date('F j, Y');
 ?>
 <?php include 'header.php'; ?>
 
 <div class="admin-dashboard-compact">
-<div class="page-head card shadow-sm p-4 mb-3 page-head-hero">
-    <div class="d-flex align-items-center gap-3">
-        <div class="page-head-icon">⚕️</div>
-        <div>
-            <div class="eyebrow">Admin Console</div>
-            <h1>Dashboard</h1>
-            <p>Welcome, <?php echo htmlspecialchars($admin_name); ?>. Today is <?php echo htmlspecialchars($currentDate); ?>.</p>
-        </div>
-    </div>
-    <div class="head-actions">
-        <a class="btn btn-outline-primary btn-sm" href="admin-appointments.php">Appointments</a>
-        <a class="btn btn-outline-secondary btn-sm" href="admin-reports.php">Reports</a>
-        <a class="btn btn-primary btn-sm" href="logout.php">Logout</a>
-    </div>
-</div>
 
 <?php $context = get_current_user_context(); echo render_announcements_panel($conn, $context['role'], $context['id'], 3); ?>
 
@@ -89,6 +81,11 @@ $currentDate = date('F j, Y');
         <span>Nurses</span>
         <strong><?php echo $nurseCount; ?></strong>
         <small>Active nursing staff</small>
+    </a>
+    <a class="metric-card" href="admin_leave_management.php">
+        <span>Leave History</span>
+        <strong><?php echo $leaveHistoryCount; ?></strong>
+        <small><?php echo $leaveHistoryPending; ?> pending requests</small>
     </a>
 </div>
 
@@ -148,6 +145,12 @@ $currentDate = date('F j, Y');
     <div class="action-grid">
         <a href="admin-patients.php">Manage Patients</a>
         <a href="admin-doctors.php">Manage Doctors</a>
+        <a href="admin_lab_assign_work.php">Assign Lab Work</a>
+        <a href="admin_leave_management.php">Leave History</a>
+        <a href="admin-doctor-photos.php">💳 Doctor Profile Photos</a>
+        <a href="admin-department-photos.php">🖼️ Department Photos</a>
+        <a href="admin-health-offers-manage.php">💊 Health Offers</a>
+        <a href="admin-birthday-settings.php">🎂 Birthday Wishes</a>
         <a href="admin-appointments.php">Manage Appointments</a>
         <a href="admin-billing.php">Billing</a>
         <a href="admin-otp-dashboard.php">OTP Dashboard</a>

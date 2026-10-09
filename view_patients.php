@@ -5,7 +5,7 @@ require_once 'db.php';
 
 $receptionist_name = $_SESSION['receptionist_name'] ?? 'Receptionist';
 $patients = [];
-$result = $conn->query('SELECT id, name, email, phone, created_at FROM patients ORDER BY created_at DESC');
+$result = $conn->query('SELECT id, patient_code, patient_type, name, email, phone, date_of_birth, created_at FROM patients ORDER BY created_at DESC');
 if ($result) {
     while ($row = $result->fetch_assoc()) {
         $patients[] = $row;
@@ -19,6 +19,10 @@ if ($result) {
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Patient Management</title>
 <style>
+.badge-patient { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+.badge-online { background: #e0f2fe; color: #0369a1; }
+.badge-walkin { background: #dcfce7; color: #166534; }
+.badge-emergency { background: #fee2e2; color: #991b1b; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
         min-height: 100vh;
@@ -58,7 +62,9 @@ if ($result) {
         </div>
         <div class="actions">
             <a class="btn btn-secondary" href="receptionist_dashboard.php">Dashboard</a>
-            <a class="btn btn-primary" href="register.php">Register Patient</a>
+            <a class="btn btn-primary" href="register.php">Register Online Patient</a>
+            <a class="btn btn-primary" href="walkin_register.php">Register Walk-in Patient</a>
+            <a class="btn btn-primary" href="emergency_register.php">Register Emergency Patient</a>
         </div>
     </div>
 
@@ -67,19 +73,32 @@ if ($result) {
             <table>
                 <thead>
                     <tr>
+                        <th>Patient ID</th>
                         <th>Name</th>
                         <th>Email</th>
                         <th>Phone</th>
+                        <th>Type</th>
+                        <th>Date of Birth</th>
                         <th>Registered</th>
+                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    <?php foreach ($patients as $patient): ?>
+                    <?php foreach ($patients as $patient):
+                        $type = $patient['patient_type'] ?? 'Online';
+                        $normalizedType = strtolower(trim((string)$type));
+                        $badgeClass = $normalizedType === 'emergency' ? 'badge-emergency' : ($normalizedType === 'walk-in' ? 'badge-walkin' : 'badge-online');
+                        $badgeLabel = $normalizedType === 'emergency' ? 'Emergency' : ($normalizedType === 'walk-in' ? 'Walk-in' : 'Online');
+                    ?>
                         <tr>
+                            <td><?php echo htmlspecialchars($patient['patient_code'] ?? ''); ?></td>
                             <td><?php echo htmlspecialchars($patient['name'] ?? ''); ?></td>
                             <td><?php echo htmlspecialchars($patient['email'] ?? ''); ?></td>
                             <td><?php echo htmlspecialchars($patient['phone'] ?? ''); ?></td>
+                            <td><span class="badge-patient <?php echo $badgeClass; ?>"><?php echo htmlspecialchars($badgeLabel); ?></span></td>
+                            <td><?php echo htmlspecialchars($patient['date_of_birth'] ?? ''); ?></td>
                             <td><?php echo htmlspecialchars($patient['created_at'] ?? ''); ?></td>
+                            <td><a class="btn btn-secondary" href="patient_profile.php?id=<?php echo (int)$patient['id']; ?>">View</a></td>
                         </tr>
                     <?php endforeach; ?>
                 </tbody>

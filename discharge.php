@@ -12,26 +12,37 @@ CREATE TABLE IF NOT EXISTS discharge (
 ");
 
 /* Save discharge */
-if(isset($_POST['discharge']))
-{
-    $patient_id = $_POST['patient_id'];
-    $summary = $_POST['summary'];
+if (isset($_POST['discharge'])) {
+    $patient_id = (int)($_POST['patient_id'] ?? 0);
+    $summary = trim($_POST['summary'] ?? '');
 
-    $sql = "INSERT INTO discharge(patient_id, summary)
-            VALUES('$patient_id','$summary')";
+    if ($patient_id > 0 && $summary !== '') {
+        $stmt = $conn->prepare('INSERT INTO discharge(patient_id, summary) VALUES (?, ?)');
+        if ($stmt) {
+            $stmt->bind_param('is', $patient_id, $summary);
+            if ($stmt->execute()) {
+                $stmt->close();
 
-    if($conn->query($sql))
-    {
-        header("Location: view_discharge.php");
-        exit();
-    }
-    else
-    {
-        echo "Error: " . $conn->error;
+                $releaseStmt = $conn->prepare('UPDATE beds SET status = ?, patient_id = NULL WHERE patient_id = ?');
+                if ($releaseStmt) {
+                    $available = 'Available';
+                    $releaseStmt->bind_param('si', $available, $patient_id);
+                    $releaseStmt->execute();
+                    $releaseStmt->close();
+                }
+
+                header('Location: view_discharge.php');
+                exit();
+            }
+            $stmt->close();
+        }
+        echo 'Error: ' . $conn->error;
+    } else {
+        echo 'Invalid discharge data submitted.';
     }
 }
 
-$patients = $conn->query("SELECT id, name FROM patients");
+$patients = $conn->query('SELECT id, name FROM patients');
 ?>
 
 <!DOCTYPE html>

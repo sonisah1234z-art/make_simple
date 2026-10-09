@@ -3,9 +3,113 @@ require_once 'auth.php';
 require_patient();
 require_once 'db.php';
 require_once 'otp-management.php';
+require_once 'appointment_reminder_helper.php';
+
+if (!function_exists('get_system_setting')) {
+    function get_system_setting(mysqli $conn, string $key, string $default = ''): string {
+        $conn->query("CREATE TABLE IF NOT EXISTS system_settings (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            setting_key VARCHAR(255) NOT NULL UNIQUE,
+            setting_value TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $stmt = $conn->prepare('SELECT setting_value FROM system_settings WHERE setting_key = ? LIMIT 1');
+        if (!$stmt) {
+            return $default;
+        }
+
+        $stmt->bind_param('s', $key);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $row = $result ? $result->fetch_assoc() : null;
+        $stmt->close();
+
+        return $row['setting_value'] ?? $default;
+    }
+}
+
+if (!function_exists('set_system_setting')) {
+    function set_system_setting(mysqli $conn, string $key, string $value): bool {
+        $conn->query("CREATE TABLE IF NOT EXISTS system_settings (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            setting_key VARCHAR(255) NOT NULL UNIQUE,
+            setting_value TEXT NOT NULL,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $stmt = $conn->prepare('INSERT INTO system_settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), updated_at = CURRENT_TIMESTAMP');
+        if (!$stmt) {
+            return false;
+        }
+
+        $stmt->bind_param('ss', $key, $value);
+        $ok = $stmt->execute();
+        $stmt->close();
+
+        return $ok;
+    }
+}
+
+if (!function_exists('is_birthday_today')) {
+    function is_birthday_today(?string $dateOfBirth): bool {
+        if ($dateOfBirth === null || trim($dateOfBirth) === '') {
+            return false;
+        }
+
+        try {
+            $dob = new DateTimeImmutable($dateOfBirth);
+        } catch (Exception $e) {
+            return false;
+        }
+
+        $today = new DateTimeImmutable('today');
+        return $dob->format('m-d') === $today->format('m-d');
+    }
+}
+
+if (!function_exists('has_birthday_wish_sent')) {
+    function has_birthday_wish_sent(mysqli $conn, int $patientId, int $year): bool {
+        $conn->query("CREATE TABLE IF NOT EXISTS birthday_wish_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            patient_id INT NOT NULL,
+            year INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_patient_year (patient_id, year)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+        $stmt = $conn->prepare('SELECT 1 FROM birthday_wish_logs WHERE patient_id = ? AND year = ? LIMIT 1');
+        if (!$stmt) {
+            return false;
+        }
+
+        $stmt->bind_param('ii', $patientId, $year);
+        $stmt->execute();
+        $result = $stmt->get_result();
+        $exists = $result && $result->num_rows > 0;
+        $stmt->close();
+
+        return $exists;
+    }
+}
+
+if (!function_exists('send_birthday_email_if_available')) {
+    function send_birthday_email_if_available(mysqli $conn, string $email, string $patientName, string $message): void {
+        $conn->query("CREATE TABLE IF NOT EXISTS birthday_wish_logs (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            patient_id INT NOT NULL,
+            year INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_patient_year (patient_id, year)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+    }
+}
 
 $patient_id = $_SESSION['patient_id'];
 $patient_name = $_SESSION['patient_name'];
+
+ensure_appointment_reminder_support($conn);
+$patient_reminders = getPatientReminders($conn, $patient_id);
 
 function parse_doctor_slots(?string $slots): array
 {
@@ -418,6 +522,47 @@ if ($doctorProfileResult) {
     }
 }
 
+function normalize_department_name(string $value): string
+{
+    $value = trim((string)$value);
+    $value = preg_replace('/\s+/', ' ', $value);
+    $value = str_replace('&', ' and ', $value);
+    $value = preg_replace('/[^\pL\pN\s-]+/u', '', $value);
+    return trim((string)$value);
+}
+
+function slugify_department_name(string $value): string
+{
+    $value = strtolower(normalize_department_name($value));
+    $value = preg_replace('/[^a-z0-9]+/', '-', $value);
+    $value = trim((string)$value, '-');
+    return $value !== '' ? $value : 'department';
+}
+
+function resolve_department_id_by_name(mysqli $conn, string $departmentName): int
+{
+    $departmentName = trim((string)$departmentName);
+    if ($departmentName === '') {
+        return 0;
+    }
+
+    $stmt = $conn->prepare('SELECT id FROM departments WHERE status = "Active" AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1');
+    if (!$stmt) {
+        return 0;
+    }
+
+    $stmt->bind_param('s', $departmentName);
+    $stmt->execute();
+    $result = $stmt->get_result();
+    $departmentId = 0;
+    if ($result && $row = $result->fetch_assoc()) {
+        $departmentId = (int)($row['id'] ?? 0);
+    }
+    $stmt->close();
+
+    return $departmentId;
+}
+
 $departmentDefinitions = [
     'dental-opd' => [
         'name' => 'Dental OPD',
@@ -525,15 +670,80 @@ $departmentDefinitions = [
     ]
 ];
 
+$selectedDepartmentId = (int)($_GET['department_id'] ?? 0);
 $selectedDepartmentSlug = isset($_GET['department']) ? trim((string)$_GET['department']) : '';
 $selectedDepartment = $departmentDefinitions[$selectedDepartmentSlug] ?? null;
-$departmentDoctors = [];
-if ($selectedDepartment) {
-    foreach ($doctorProfiles as $doctor) {
-        if (department_matches_doctor($doctor, $selectedDepartment)) {
-            $departmentDoctors[] = $doctor;
+
+$departmentCatalog = [];
+$departmentRows = $conn->query("SELECT id, name, description, status, image_path FROM departments WHERE status = 'Active' ORDER BY name ASC");
+if ($departmentRows) {
+    while ($row = $departmentRows->fetch_assoc()) {
+        $name = trim((string)($row['name'] ?? ''));
+        if ($name === '') {
+            continue;
+        }
+
+        $slug = slugify_department_name($name);
+        $savedImage = trim((string)($row['image_path'] ?? ''));
+        $defaultDepartmentImage = $departmentDefinitions[$slug]['image'] ?? 'assets/images/default-doctor.png';
+        $departmentCatalog[$slug] = [
+            'id' => (int)($row['id'] ?? 0),
+            'name' => $name,
+            'description' => trim((string)($row['description'] ?? '')),
+            'image' => $savedImage !== '' ? $savedImage : $defaultDepartmentImage,
+        ];
+    }
+}
+
+if ($selectedDepartment === null && $selectedDepartmentSlug !== '') {
+    foreach ($departmentCatalog as $slug => $department) {
+        if ($slug === $selectedDepartmentSlug) {
+            $selectedDepartment = [
+                'id' => (int)($department['id'] ?? 0),
+                'name' => $department['name'],
+                'description' => $department['description'],
+                'keywords' => [slugify_department_name($department['name'])],
+                'image' => $department['image'] ?? '',
+            ];
+            break;
         }
     }
+}
+
+if ($selectedDepartmentId === 0 && $selectedDepartment) {
+    $selectedDepartmentId = (int)($selectedDepartment['id'] ?? resolve_department_id_by_name($conn, (string)($selectedDepartment['name'] ?? '')));
+}
+
+$departmentDoctors = [];
+if ($selectedDepartmentId > 0 || $selectedDepartment) {
+    $departmentName = trim((string)($selectedDepartment['name'] ?? ''));
+    if ($selectedDepartmentId > 0 && $departmentName === '') {
+        $departmentRow = $conn->query('SELECT name FROM departments WHERE id = ' . (int)$selectedDepartmentId . ' AND status = "Active" LIMIT 1');
+        if ($departmentRow && $departmentRow->num_rows > 0) {
+            $departmentName = trim((string)$departmentRow->fetch_assoc()['name']);
+        }
+    }
+
+    foreach ($doctorProfiles as &$doctorProfile) {
+        $doctorDeptName = trim((string)($doctorProfile['department'] ?? ''));
+        $doctorDepartmentId = 0;
+        if ($doctorDeptName !== '') {
+            $doctorDepartmentId = resolve_department_id_by_name($conn, $doctorDeptName);
+        }
+
+        $matchesDepartment = false;
+        if ($selectedDepartmentId > 0 && $doctorDepartmentId > 0) {
+            $matchesDepartment = $selectedDepartmentId === $doctorDepartmentId;
+        } elseif ($departmentName !== '') {
+            $matchesDepartment = strcasecmp($doctorDeptName, $departmentName) === 0 || strcasecmp((string)($doctorProfile['specialty'] ?? ''), $departmentName) === 0;
+        }
+
+        if ($matchesDepartment) {
+            $doctorProfile['department_id'] = $doctorDepartmentId;
+            $departmentDoctors[] = $doctorProfile;
+        }
+    }
+    unset($doctorProfile);
 }
 
 require_once 'announcements.php';
@@ -553,7 +763,7 @@ $departmentMeta = [
     'Neurosurgery' => ['icon' => 'bi-tools', 'description' => 'Surgical treatment of the brain, spine and nervous system.'],
     'Nephrology' => ['icon' => 'bi-droplet', 'description' => 'Kidney care, dialysis support and transplant evaluation services.'],
     'Obstetrics & Gynecology' => ['icon' => 'bi-gender-female', 'description' => 'Women’s health, pregnancy, and reproductive care.'],
-    'Paediatrics' => ['icon' => 'bi-baby', 'description' => 'Child and adolescent care for growth, immunizations and wellness.'],
+    'Pediatrics' => ['icon' => 'bi-baby', 'description' => 'Child and adolescent care for growth, immunizations and wellness.'],
     'Psychiatry & Mental Health' => ['icon' => 'bi-emoji-smile', 'description' => 'Mental health support, therapy and psychiatric care services.'],
     'Plastic Surgery and Burns' => ['icon' => 'bi-hammer', 'description' => 'Reconstructive and cosmetic surgery with burn recovery support.'],
     'Pharmacy' => ['icon' => 'bi-bag-heart', 'description' => 'Medication dispensing, counseling and pharmacy support services.'],
@@ -575,7 +785,7 @@ $departmentKeywords = [
     'Neurosurgery' => ['neurosurgery', 'neurosurgeon', 'brain surgery'],
     'Nephrology' => ['nephrology', 'kidney'],
     'Obstetrics & Gynecology' => ['obstetrics', 'gynecology', 'obgyn', 'women’s health', 'women'],
-    'Paediatrics' => ['paediatrics', 'pediatrics', 'child', 'pediatric'],
+   'Pediatrics' => ['pediatrics', 'paediatrics', 'child', 'pediatric'],
     'Psychiatry & Mental Health' => ['psychiatry', 'mental health', 'psychology', 'psych'],
     'Plastic Surgery and Burns' => ['plastic surgery', 'burns', 'reconstructive'],
     'Pharmacy' => ['pharmacy', 'pharmacist', 'medicines'],
@@ -610,30 +820,56 @@ foreach ($departmentMeta as $name => $meta) {
     ];
 }
 
-$heroSlides = [
-    [
-        'badge' => 'Health Campaign',
-        'title' => 'Free Blood Pressure Checks',
-        'description' => 'Visit our outpatient wing this week for complimentary BP checks and expert heart health advice.',
-        'cta' => 'Book a Checkup',
-        'link' => 'book-appointment.php'
-    ],
-    [
-        'badge' => 'Seasonal Care',
-        'title' => 'Diabetes Screening & Coaching',
-        'description' => 'Take control with screening camps, diet counseling, and follow-up support from our specialists.',
-        'cta' => 'Reserve Your Slot',
-        'link' => 'book-appointment.php'
-    ],
-    [
-        'badge' => 'Wellness Offer',
-        'title' => 'Vaccination Camps + Health Checkup Packages',
-        'description' => 'Protect yourself with seasonal vaccines and personalized health packages for every age group.',
-        'cta' => 'Learn More',
-        'link' => 'book-appointment.php'
-    ]
-];
+// Fetch active health offers and packages from database
+$promotionalOffers = [];
+$healthPackages = [];
+$today = date('Y-m-d');
+
+// Fetch promotional offers (carousel/promotional design)
+$offersResult = $conn->query("
+    SELECT * FROM health_offers 
+    WHERE is_active = 1 
+    AND offer_type = 'offer'
+    AND validity_start <= '$today' 
+    AND validity_end >= '$today'
+    ORDER BY sort_order ASC, is_popular DESC, id DESC
+");
+if ($offersResult) {
+    while ($offer = $offersResult->fetch_assoc()) {
+        $promotionalOffers[] = $offer;
+    }
+}
+
+// Fetch health checkup packages
+$packagesResult = $conn->query("
+    SELECT * FROM health_offers 
+    WHERE is_active = 1 
+    AND offer_type = 'package'
+    AND validity_start <= '$today' 
+    AND validity_end >= '$today'
+    ORDER BY sort_order ASC, is_popular DESC, id DESC
+");
+if ($packagesResult) {
+    while ($package = $packagesResult->fetch_assoc()) {
+        $healthPackages[] = $package;
+    }
+}
+
+// Keep for backward compatibility (all offers)
+$healthOffers = array_merge($promotionalOffers, $healthPackages);
+
+$heroSlides = [];
+$matchingHospitalUpdates = [];
 foreach ($visibleAnnouncements as $announcement) {
+    $title = trim((string)($announcement['title'] ?? ''));
+    $message = trim(strip_tags((string)($announcement['message'] ?? '')));
+    if (stripos($title, 'Blood Donation Camp') !== false || stripos($message, 'Blood Donation Camp') !== false) {
+        $matchingHospitalUpdates[] = $announcement;
+        break;
+    }
+}
+
+foreach ($matchingHospitalUpdates as $announcement) {
     $heroSlides[] = [
         'badge' => 'Hospital Update',
         'title' => $announcement['title'],
@@ -772,6 +1008,99 @@ if ($bedEmergencyAvailableResult) {
 }
 ?>
 <?php include 'header.php'; ?>
+<style>
+    .topnav a[href="patient_notifications.php"] { display: none; }
+    .topnav form[role="search"] { display: none; }
+    .sidebar.d-none { display: none !important; }
+
+    /* Patient dashboard presentation overrides shared compact defaults. */
+    :root {
+        --patient-ink: #16324f;
+        --patient-muted: #6b7c93;
+        --patient-blue: #1479c9;
+        --patient-teal: #0f9d91;
+        --patient-line: #dce7f0;
+        --patient-surface: #ffffff;
+        --patient-wash: #f4f8fb;
+        --patient-shadow: 0 12px 34px rgba(26, 58, 88, .08);
+    }
+
+    body:has(.dashboard-page) { background: var(--patient-wash); color: var(--patient-ink); }
+    body:has(.dashboard-page) .app { background: var(--patient-wash); }
+    body:has(.dashboard-page) .sidebar {
+        width: 252px !important;
+        max-width: 252px !important;
+        flex-basis: 252px !important;
+        background: linear-gradient(180deg, #123e5d 0%, #102d46 100%) !important;
+        box-shadow: 8px 0 28px rgba(20, 55, 84, .08);
+    }
+    body:has(.dashboard-page) .sidebar-brand { padding: 1.35rem 1.2rem 1.1rem !important; }
+    body:has(.dashboard-page) .brand-circle { width: 40px; height: 40px; border-radius: 12px; background: #58c6ba; color: #103b4d; font-size: 1.1rem; }
+    body:has(.dashboard-page) .brand-title { font-size: 1.05rem; letter-spacing: .01em; }
+    body:has(.dashboard-page) .sidebar .nav { padding: .75rem .8rem !important; }
+    body:has(.dashboard-page) .sidebar .nav-link { padding: .78rem .85rem; margin-bottom: .35rem; border-radius: 10px; color: #dcecf5; }
+    body:has(.dashboard-page) .sidebar .nav-link:hover,
+    body:has(.dashboard-page) .sidebar .nav-link:focus { background: rgba(88, 198, 186, .16); color: #fff; transform: translateX(3px); }
+    body:has(.dashboard-page) .sidebar .nav-link i { width: 1.25rem; color: #83d7cf; }
+    body:has(.dashboard-page) .sidebar-footer { padding: 1.1rem !important; border-top-color: rgba(255,255,255,.12); }
+    body:has(.dashboard-page) .topnav { min-height: 70px; background: rgba(255,255,255,.94) !important; border-bottom: 1px solid var(--patient-line); box-shadow: 0 5px 22px rgba(26, 58, 88, .05); }
+    body:has(.dashboard-page) .topnav .container-fluid { padding: .8rem 1.35rem; }
+    body:has(.dashboard-page) #sidebarToggle { border-color: var(--patient-line); color: var(--patient-ink); }
+    body:has(.dashboard-page) .topnav .btn-outline-primary { border-color: #b9d7e7; color: var(--patient-blue); }
+    body:has(.dashboard-page) .container-fluid.p-4 { max-width: 1500px; margin: 0 auto; padding: 2rem 2.25rem !important; }
+    body:has(.dashboard-page) .page-head { margin-bottom: 1.35rem; }
+    body:has(.dashboard-page) .page-head .eyebrow { color: var(--patient-teal); font-size: .72rem; letter-spacing: .14em; }
+    body:has(.dashboard-page) .page-head h1 { color: var(--patient-ink); font-size: clamp(1.65rem, 2.4vw, 2.35rem); letter-spacing: -.02em; }
+    body:has(.dashboard-page) .page-head p { color: var(--patient-muted) !important; max-width: 700px; }
+    .dashboard-page { gap: 1.35rem; }
+    .dashboard-page > .card,
+    .dashboard-page > section.card,
+    .dashboard-page .appointment-reminders { border: 1px solid var(--patient-line) !important; border-radius: 14px !important; background: var(--patient-surface); box-shadow: var(--patient-shadow); }
+    .dashboard-page > section.card,
+    .dashboard-page > .card { padding: 1.45rem !important; }
+    .dashboard-page h5 { color: var(--patient-ink); font-size: 1.08rem !important; font-weight: 750; }
+    .dashboard-page .section-label { color: var(--patient-teal); font-size: .7rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; }
+    .dashboard-page .text-muted { color: var(--patient-muted) !important; }
+    .dashboard-page .metric-card { border: 0 !important; border-left: 4px solid var(--patient-blue) !important; border-radius: 12px !important; background: var(--patient-surface); box-shadow: var(--patient-shadow); padding: 1.15rem !important; }
+    .dashboard-page .metric-card:nth-child(2) { border-left-color: #f0ad4e !important; }
+    .dashboard-page .metric-card:nth-child(3) { border-left-color: var(--patient-teal) !important; }
+    .dashboard-page .metric-card:nth-child(4) { border-left-color: #7b8aa0 !important; }
+    .dashboard-page .metric-card span { color: var(--patient-muted); font-size: .72rem; letter-spacing: .1em; }
+    .dashboard-page .metric-card strong { color: var(--patient-ink); font-size: 2rem; }
+    .dashboard-page .appointment-card > .card-body,
+    .dashboard-page .appointment-card .card { border-color: var(--patient-line) !important; border-radius: 12px !important; }
+    .dashboard-page .appointment-table thead th { color: var(--patient-muted); font-size: .72rem; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid var(--patient-line); }
+    .dashboard-page .appointment-table tbody tr { border-bottom: 1px solid #edf2f6; }
+    .dashboard-page .appointment-table tbody tr:last-child { border-bottom: 0; }
+    .dashboard-page .offer-container { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 1rem; }
+    .dashboard-page .offer-card { overflow: hidden; border: 1px solid var(--patient-line); border-radius: 12px; background: #fff; box-shadow: 0 8px 22px rgba(26,58,88,.06); }
+    .dashboard-page .offer-image { height: 150px; }
+    .dashboard-page .offer-image img { width: 100%; height: 100%; object-fit: cover; }
+    .dashboard-page .offer-content { padding: 1rem; }
+    .dashboard-page .offer-content h3 { color: var(--patient-ink); font-size: 1.05rem; }
+    .dashboard-page .health-packages-dashboard .health-container { gap: 1rem; }
+    .dashboard-page .health-packages-dashboard .health-card { border-radius: 12px; box-shadow: 0 8px 22px rgba(26,58,88,.06); }
+    .dashboard-page .health-packages-dashboard .health-card img { height: 150px; }
+    .dashboard-page .department-showcase-card, .dashboard-page .doctor-inline-card { border-color: var(--patient-line); border-radius: 12px; box-shadow: 0 8px 22px rgba(26,58,88,.06); }
+    .dashboard-page .department-showcase-card:hover, .dashboard-page .department-showcase-card.active { border-color: #8bcfc8; box-shadow: 0 14px 28px rgba(15,157,145,.12); }
+    .dashboard-page .service-card { min-height: 142px; padding: 1.25rem !important; border: 1px solid var(--patient-line); border-radius: 12px; background: #fbfdff; box-shadow: none; }
+    .dashboard-page .service-card:hover { border-color: #8bcfc8; background: #f2fbfa; transform: translateY(-3px); }
+    .dashboard-page .service-card .sa-icon { width: 52px; height: 52px; margin-bottom: .65rem; border-radius: 14px; background: #e7f5f4; color: var(--patient-teal); font-size: 1.35rem; }
+    .dashboard-page .service-card .sa-title { color: var(--patient-ink); font-size: .95rem; }
+    .dashboard-page .service-card .sa-desc { color: var(--patient-muted); font-size: .78rem; }
+    @media (max-width: 991.98px) {
+        body:has(.dashboard-page) .sidebar { position: fixed !important; left: 0; top: 0; height: 100vh; z-index: 1050; }
+        body:has(.dashboard-page) .container-fluid.p-4 { padding: 1.35rem !important; }
+    }
+    @media (max-width: 575.98px) {
+        body:has(.dashboard-page) .topnav .container-fluid { padding: .7rem .8rem; }
+        body:has(.dashboard-page) .topnav .me-3 { display: none; }
+        body:has(.dashboard-page) .container-fluid.p-4 { padding: 1rem .75rem !important; }
+        .dashboard-page > section.card, .dashboard-page > .card { padding: 1rem !important; }
+        .dashboard-page .appointment-table { min-width: 560px; }
+        .dashboard-page .health-packages-dashboard .health-container { grid-template-columns: 1fr; }
+    }
+</style>
 
 <div class="page-head mb-4">
     <div>
@@ -782,58 +1111,105 @@ if ($bedEmergencyAvailableResult) {
 </div>
 
 <div class="dashboard-page">
-    <section class="dashboard-hero card mb-4 overflow-hidden" aria-label="Patient service highlights">
-        <div class="hero-carousel">
-            <div class="hero-carousel-track">
-                <?php foreach ($heroSlides as $index => $slide): ?>
-                    <article class="hero-slide <?php echo $index === 0 ? 'active' : ''; ?>" data-slide="<?php echo (int)$index; ?>">
-                        <div class="hero-content row g-4 align-items-center h-100">
-                            <div class="col-lg-7">
-                                <span class="hero-badge"><?php echo htmlspecialchars($slide['badge'] ?? 'Featured Care'); ?></span>
-                                <h2><?php echo htmlspecialchars($slide['title'] ?? 'Healthcare services'); ?></h2>
-                                <p><?php echo htmlspecialchars($slide['description'] ?? 'Discover our latest care options and wellness support.'); ?></p>
-                                <div class="hero-actions d-flex flex-wrap gap-2 mt-4">
-                                    <a class="btn btn-light btn-lg hero-action-btn" href="<?php echo htmlspecialchars($slide['link'] ?? 'book-appointment.php'); ?>">Book Appointment</a>
-                                    <a class="btn btn-outline-light btn-lg" href="view_appointments.php">View My Appointments</a>
-                                </div>
-                                <div class="hero-pill-list d-flex flex-wrap gap-2 mt-4">
-                                    <span class="pill-pill">Same-day support</span>
-                                    <span class="pill-pill">Expert clinicians</span>
-                                    <span class="pill-pill">Wellness programs</span>
-                                </div>
-                            </div>
-                            <div class="col-lg-5">
-                                <div class="hero-card">
-                                    <div class="hero-card-badge">Healthcare Services</div>
-                                    <img class="hero-image-illustration hero-image-photo"
-                                         src="assets/images/hospital-hero-photo.svg"
-                                         alt="Hospital photo"
-                                         loading="eager"
-                                         onerror="this.onerror=null;this.src='assets/images/patient-dashboard-hero.svg';">
-                                    <div class="hero-card-stats">
-                                        <div>
-                                            <strong>24/7</strong>
-                                            <span>Urgent care</span>
-                                        </div>
-                                        <div>
-                                            <strong>98%</strong>
-                                            <span>Patient satisfaction</span>
-                                        </div>
+    <!-- OTP: moved here to be visible immediately below header/navigation -->
+    <section class="card p-4 appointment-card mb-4">
+        <div class="d-flex justify-content-between align-items-start mb-4">
+            <div>
+                <span class="section-label">Verification OTP</span>
+                <h5 class="mt-2 mb-1">Secure check-in codes for approved visits</h5>
+                <p class="text-muted mb-0">Approved appointments will show a verification OTP here for hospital check-in.</p>
+            </div>
+            <a class="text-primary small" href="view_appointments.php">View all appointments</a>
+        </div>
+
+        <?php if (count($appointments) > 0): ?>
+            <div class="row g-3">
+                <?php foreach ($appointments as $appointment): ?>
+                    <?php
+                        $appointmentStatus = $appointment['status'] ?? '';
+                        $otpCode = $appointment['otp_code'] ?? '';
+                        $verificationStatus = $appointment['verification_status'] ?? '';
+                        $expiresAt = $appointment['expires_at'] ?? '';
+                        $isExpired = $expiresAt !== '' && strtotime($expiresAt) < time();
+                        $isVerified = $verificationStatus === 'Verified';
+                    ?>
+                    <div class="col-lg-6">
+                        <div class="card border-0 shadow-sm h-100">
+                            <div class="card-body">
+                                <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
+                                    <div>
+                                        <h6 class="mb-1 fw-semibold"><?php echo htmlspecialchars($appointment['doctor_name']); ?></h6>
+                                        <div class="text-muted small"><?php echo htmlspecialchars($appointment['specialty']); ?></div>
                                     </div>
+                                    <span class="status-pill status-<?php echo htmlspecialchars($appointmentStatus); ?>"><?php echo htmlspecialchars($appointmentStatus); ?></span>
+                                </div>
+
+                                <div class="small text-muted mb-3">
+                                    <div><?php echo htmlspecialchars($appointment['appointment_date']); ?> • <?php echo htmlspecialchars(substr($appointment['appointment_time'], 0, 5)); ?></div>
+                                </div>
+
+                                <?php if ($appointmentStatus === 'Approved'): ?>
+                                    <?php if ($isVerified): ?>
+                                        <div class="alert alert-success py-2 mb-0 small">✓ Your appointment has already been verified and is ready for your visit.</div>
+                                    <?php elseif ($isExpired): ?>
+                                    <?php elseif (!empty($otpCode)): ?>
+                                        <div class="border rounded-3 p-3 bg-light">
+                                            <div class="fw-semibold mb-2">Verification code</div>
+                                            <div class="otp-actions d-flex align-items-center justify-content-between gap-2 flex-wrap">
+                                                <div class="otp-value d-none fs-4 fw-bold text-primary letter-spacing-2"><?php echo htmlspecialchars($otpCode); ?></div>
+                                                <div class="d-flex gap-2 flex-wrap">
+                                                    <button type="button" class="btn btn-primary btn-sm otp-toggle-btn">Show OTP</button>
+                                                    <button type="button" class="btn btn-outline-primary btn-sm copy-otp-btn d-none" data-otp="<?php echo htmlspecialchars($otpCode); ?>">Copy OTP</button>
+                                                </div>
+                                            </div>
+                                            <div class="text-muted small mt-2">Present this code at the reception desk when you arrive.</div>
+                                        </div>
+                                    <?php else: ?>
+                                        <div class="alert alert-info py-2 mb-0 small">OTP is being prepared. Please check back shortly or refresh the page.</div>
+                                    <?php endif; ?>
+                                <?php elseif ($appointmentStatus === 'Pending'): ?>
+                                    <div class="alert alert-warning py-2 mb-0 small">⏳ Waiting for hospital approval. Your OTP will appear here once the appointment is approved.</div>
+                                <?php elseif ($appointmentStatus === 'Cancelled'): ?>
+                                    <div class="alert alert-danger py-2 mb-0 small">✕ This appointment was cancelled and no verification code is available.</div>
+                                <?php else: ?>
+                                    <div class="alert alert-secondary py-2 mb-0 small">No OTP details available for this appointment yet.</div>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        <?php else: ?>
+            <div class="text-muted">No appointments found yet. Book a new appointment to get started.</div>
+        <?php endif; ?>
+    </section>
+
+    <?php if (!empty($patient_reminders)): ?>
+        <section class="appointment-reminders card p-4 mb-4">
+            <div class="d-flex justify-content-between align-items-start mb-3">
+                <div>
+                    <span class="section-label">Appointment Reminders</span>
+                    <h5 class="mt-2 mb-1">Upcoming reminders</h5>
+                    <p class="text-muted mb-0">These reminders were sent for your approved appointments.</p>
+                </div>
+            </div>
+            <div class="row row-cols-1 g-3">
+                <?php foreach ($patient_reminders as $reminder): ?>
+                    <div class="col">
+                        <div class="card border-primary shadow-sm">
+                            <div class="card-body">
+                                <h6 class="card-title mb-2"><?php echo htmlspecialchars($reminder['title']); ?></h6>
+                                <p class="card-text mb-2"><?php echo htmlspecialchars($reminder['message']); ?></p>
+                                <div class="text-muted small">
+                                    Delivered at: <?php echo htmlspecialchars(date('M d, Y H:i', strtotime($reminder['delivered_at']))); ?>
                                 </div>
                             </div>
                         </div>
-                    </article>
+                    </div>
                 <?php endforeach; ?>
             </div>
-            <div class="hero-slider-nav" role="tablist" aria-label="Healthcare highlights">
-                <?php foreach ($heroSlides as $index => $slide): ?>
-                    <button type="button" class="slider-dot <?php echo $index === 0 ? 'active' : ''; ?>" data-slide-to="<?php echo (int)$index; ?>" aria-label="Go to highlight <?php echo (int)($index + 1); ?>"></button>
-                <?php endforeach; ?>
-            </div>
-        </div>
-    </section>
-
+        </section>
+    <?php endif; ?>
     <section class="health-offers card p-4 mb-4">
         <div class="d-flex justify-content-between align-items-start mb-3">
             <div>
@@ -844,81 +1220,38 @@ if ($bedEmergencyAvailableResult) {
         </div>
 
         <div class="offer-container">
-            <div class="offer-card">
-                <div class="offer-image">
-                    <img src="https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=900" alt="Full body checkup">
-                    <span class="discount">30% OFF</span>
-                    <span class="popular">⭐ Popular</span>
-                </div>
-                <div class="offer-content">
-                    <h3>Full Body Checkup</h3>
-                    <p>Complete preventive health screening with specialist consultation.</p>
-                    <ul>
-                        <li>✔ Blood Test</li>
-                        <li>✔ ECG</li>
-                        <li>✔ Chest X-Ray</li>
-                        <li>✔ Liver Function Test</li>
-                        <li>✔ Kidney Function Test</li>
-                        <li>✔ Doctor Consultation</li>
-                    </ul>
-                    <div class="offer-time">⏰ Offer Valid Until 31 August</div>
-                    <div class="price">
-                        <span class="new-price">Rs.5,500</span>
-                        <span class="old-price">Rs.7,500</span>
+            <?php foreach ($healthOffers as $offer): ?>
+                <div class="offer-card">
+                    <div class="offer-image">
+                        <img src="<?php echo htmlspecialchars(!empty($offer['image_path']) ? $offer['image_path'] : 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=900'); ?>" 
+                             alt="<?php echo htmlspecialchars($offer['title']); ?>" 
+                             loading="lazy" 
+                             onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=900';">
+                        <?php if (!empty($offer['discount_percentage'])): ?>
+                            <span class="discount"><?php echo htmlspecialchars($offer['discount_percentage']); ?>% OFF</span>
+                        <?php endif; ?>
+                        <?php if (!empty($offer['badge_emoji'])): ?>
+                            <span class="popular"><?php echo htmlspecialchars($offer['badge_emoji']); ?> <?php echo htmlspecialchars($offer['badge_text'] ?? 'Offer'); ?></span>
+                        <?php endif; ?>
                     </div>
-                    <a href="book-appointment.php" class="book-btn">📅 Book Now</a>
-                </div>
-            </div>
-
-            <div class="offer-card">
-                <div class="offer-image">
-                    <img src="https://images.unsplash.com/photo-1538108149393-fbbd81895907?w=900" alt="Heart care package">
-                    <span class="discount">25% OFF</span>
-                    <span class="popular">❤️ Best Seller</span>
-                </div>
-                <div class="offer-content">
-                    <h3>Heart Care Package</h3>
-                    <p>Advanced cardiac screening with experienced specialists.</p>
-                    <ul>
-                        <li>✔ ECG</li>
-                        <li>✔ Echo</li>
-                        <li>✔ Blood Pressure</li>
-                        <li>✔ Cholesterol Test</li>
-                        <li>✔ Cardiologist Consultation</li>
-                    </ul>
-                    <div class="offer-time">⏰ Limited Time Offer</div>
-                    <div class="price">
-                        <span class="new-price">Rs.4,999</span>
-                        <span class="old-price">Rs.6,800</span>
+                    <div class="offer-content">
+                        <h3><?php echo htmlspecialchars($offer['title']); ?></h3>
+                        <p><?php echo htmlspecialchars($offer['description']); ?></p>
+                        <div class="offer-time">⏰ Valid until <?php echo date('d M, Y', strtotime($offer['validity_end'])); ?></div>
+                        <div class="price">
+                            <span class="new-price">Rs.<?php echo number_format((float)$offer['discounted_price'], 0); ?></span>
+                            <span class="old-price">Rs.<?php echo number_format((float)$offer['original_price'], 0); ?></span>
+                        </div>
+                        <a href="<?php echo htmlspecialchars($offer['booking_link']); ?>" class="book-btn">📅 Book Now</a>
                     </div>
-                    <a href="book-appointment.php" class="book-btn">📅 Book Now</a>
                 </div>
-            </div>
-
-            <div class="offer-card">
-                <div class="offer-image">
-                    <img src="https://images.unsplash.com/photo-1584515933487-779824d29309?w=900" alt="Diabetes screening">
-                    <span class="discount">40% OFF</span>
-                    <span class="popular">🔥 New</span>
+            <?php endforeach; ?>
+            
+            <?php if (empty($healthOffers)): ?>
+                <div class="offer-card" style="grid-column: 1 / -1; text-align: center; padding: 40px;">
+                    <p>No active health offers at the moment. Check back soon!</p>
                 </div>
-                <div class="offer-content">
-                    <h3>Diabetes Screening</h3>
-                    <p>Early diabetes detection package with complete consultation.</p>
-                    <ul>
-                        <li>✔ Blood Sugar</li>
-                        <li>✔ HbA1c</li>
-                        <li>✔ Kidney Test</li>
-                        <li>✔ Diet Consultation</li>
-                        <li>✔ Doctor Advice</li>
-                    </ul>
-                    <div class="offer-time">⏰ Ends This Week</div>
-                    <div class="price">
-                        <span class="new-price">Rs.1,999</span>
-                        <span class="old-price">Rs.3,500</span>
-                    </div>
-                    <a href="book-appointment.php" class="book-btn">📅 Book Now</a>
-                </div>
-            </div>
+            <?php endif; ?>
         </div>
     </section>
 
@@ -1037,73 +1370,26 @@ if ($bedEmergencyAvailableResult) {
             </div>
 
             <div class="health-container">
-                <div class="health-card">
-                    <img src="https://images.unsplash.com/photo-1576091160550-2173dba999ef?auto=format&fit=crop&w=900&q=80" alt="General health package">
-                    <div class="health-body">
-                        <h3>MDC General Health</h3>
-                        <span class="tests">30 Tests</span>
-                        <p>This package helps detect lifestyle diseases and checks thyroid, blood sugar, kidney, and liver health.</p>
-                        <div class="price">
-                            <span class="new-price">Rs 1,500</span>
-                            <span class="old-price">Rs 2,500</span>
+                <?php foreach ($healthOffers as $index => $offer): ?>
+                    <?php if ($index < 4): // Limit to 4 cards in this section ?>
+                        <div class="health-card">
+                            <img src="<?php echo htmlspecialchars(!empty($offer['image_path']) ? $offer['image_path'] : 'https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=900'); ?>" alt="<?php echo htmlspecialchars($offer['title']); ?>" loading="lazy" onerror="this.onerror=null;this.src='https://images.unsplash.com/photo-1576091160550-2173dba999ef?w=900';">
+                            <div class="health-body">
+                                <h3><?php echo htmlspecialchars($offer['title']); ?></h3>
+                                <span class="tests"><?php echo $offer['discount_percentage']; ?>% OFF</span>
+                                <p><?php echo htmlspecialchars($offer['description']); ?></p>
+                                <div class="price">
+                                    <span class="new-price">Rs <?php echo number_format((float)$offer['discounted_price'], 0); ?></span>
+                                    <span class="old-price">Rs <?php echo number_format((float)$offer['original_price'], 0); ?></span>
+                                </div>
+                                <div class="buttons">
+                                    <a href="#" class="read-btn">Read More</a>
+                                    <a href="<?php echo htmlspecialchars($offer['booking_link']); ?>" class="book-btn">Book Now</a>
+                                </div>
+                            </div>
                         </div>
-                        <div class="buttons">
-                            <a href="#" class="read-btn">Read More</a>
-                            <a href="book-appointment.php" class="book-btn">Book Now</a>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="health-card">
-                    <img src="https://images.unsplash.com/photo-1584515933487-779824d29309?auto=format&fit=crop&w=900&q=80" alt="Complete screening package">
-                    <div class="health-body">
-                        <h3>MDC Nirogi-1</h3>
-                        <span class="tests">40 Tests</span>
-                        <p>Complete health screening with blood sugar, thyroid, cholesterol and kidney function tests.</p>
-                        <div class="price">
-                            <span class="new-price">Rs 2,400</span>
-                            <span class="old-price">Rs 3,600</span>
-                        </div>
-                        <div class="buttons">
-                            <a href="#" class="read-btn">Read More</a>
-                            <a href="book-appointment.php" class="book-btn">Book Now</a>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="health-card">
-                    <img src="https://images.unsplash.com/photo-1538108149393-fbbd81895907?auto=format&fit=crop&w=900&q=80" alt="Advanced package">
-                    <div class="health-body">
-                        <h3>MDC Nirogi-2</h3>
-                        <span class="tests">55 Tests</span>
-                        <p>Advanced package including liver profile, kidney profile, blood count, thyroid and lipid profile.</p>
-                        <div class="price">
-                            <span class="new-price">Rs 2,900</span>
-                            <span class="old-price">Rs 4,980</span>
-                        </div>
-                        <div class="buttons">
-                            <a href="#" class="read-btn">Read More</a>
-                            <a href="book-appointment.php" class="book-btn">Book Now</a>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="health-card">
-                    <img src="https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=900&q=80" alt="Premium health package">
-                    <div class="health-body">
-                        <h3>MDC Nirogi-3</h3>
-                        <span class="tests">60 Tests</span>
-                        <p>Premium preventive package with Vitamin D, Vitamin B12, thyroid, diabetes and complete body health screening.</p>
-                        <div class="price">
-                            <span class="new-price">Rs 4,500</span>
-                            <span class="old-price">Rs 7,250</span>
-                        </div>
-                        <div class="buttons">
-                            <a href="#" class="read-btn">Read More</a>
-                            <a href="book-appointment.php" class="book-btn">Book Now</a>
-                        </div>
-                    </div>
-                </div>
+                    <?php endif; ?>
+                <?php endforeach; ?>
             </div>
         </div>
     </section>
@@ -1162,101 +1448,66 @@ if ($bedEmergencyAvailableResult) {
         <?php endif; ?>
     </section>
 
-    <section class="card p-4 mb-4 doctor-showcase-section">
-        <div class="doctor-showcase-title text-center mb-4">
-            <span class="section-label">Our Doctors</span>
-            <h5 class="mt-2 mb-1">Meet our expert doctors</h5>
-            <p class="text-muted mb-0">Professional specialists currently available for your care.</p>
-        </div>
-
-        <?php $doctorPhotoPool = [
-            'https://images.unsplash.com/photo-1612349317150-e413f6a5b16d?auto=format&fit=crop&w=900&q=80',
-            'https://images.unsplash.com/photo-1559839734-2b71ea197ec2?auto=format&fit=crop&w=900&q=80',
-            'https://images.unsplash.com/photo-1594824476967-48c8b964273f?auto=format&fit=crop&w=900&q=80',
-            'https://images.unsplash.com/photo-1582750433449-648ed127bb54?auto=format&fit=crop&w=900&q=80'
-        ]; ?>
-        <?php $doctorNamePool = ['Dr. Asha Sharma', 'Dr. Rahul Verma', 'Dr. Sofia Patel', 'Dr. Nabin Khadka']; ?>
-        <?php $featuredDoctors = array_slice($doctorProfiles, 0, 4); ?>
-        <?php if (!empty($featuredDoctors)): ?>
-            <div class="doctor-showcase-grid">
-                <?php foreach ($featuredDoctors as $doctorIndex => $doctor): ?>
-                    <?php $doctorStatus = $doctor['availability_status'] ?: $doctor['status']; ?>
-                    <?php $specialty = strtolower((string)($doctor['specialty'] ?? '')); ?>
-                    <?php $doctorName = trim((string)($doctor['name'] ?? '')); ?>
-                    <?php if ($doctorName === '' || strtolower($doctorName) === 'doctor' || strtolower($doctorName) === 'dr') { $doctorName = $doctorNamePool[$doctorIndex % count($doctorNamePool)]; } ?>
-                    <?php $doctorImage = !empty($doctor['profile_photo']) ? trim((string)$doctor['profile_photo']) : $doctorPhotoPool[$doctorIndex % count($doctorPhotoPool)]; ?>
-                    <?php $doctorIcon = '🏥'; ?>
-                    <?php if (strpos($specialty, 'dental') !== false) { $doctorIcon = '🦷'; } elseif (strpos($specialty, 'general') !== false) { $doctorIcon = '👨‍⚕️'; } elseif (strpos($specialty, 'pain') !== false) { $doctorIcon = '💊'; } elseif (strpos($specialty, 'hematology') !== false || strpos($specialty, 'blood') !== false) { $doctorIcon = '🩸'; } elseif (strpos($specialty, 'family') !== false) { $doctorIcon = '👨‍👩‍👧'; } elseif (strpos($specialty, 'gastro') !== false) { $doctorIcon = '🫃'; } elseif (strpos($specialty, 'respiratory') !== false) { $doctorIcon = '🫁'; } elseif (strpos($specialty, 'endocrine') !== false) { $doctorIcon = '🧬'; } elseif (strpos($specialty, 'cardio') !== false || strpos($specialty, 'cardiology') !== false) { $doctorIcon = '❤️'; } elseif (strpos($specialty, 'neuro') !== false) { $doctorIcon = '🧠'; } elseif (strpos($specialty, 'paediatric') !== false || strpos($specialty, 'pediatric') !== false) { $doctorIcon = '👶'; } elseif (strpos($specialty, 'dermatology') !== false) { $doctorIcon = '🩹'; } elseif (strpos($specialty, 'orthopedic') !== false || strpos($specialty, 'orthopaedic') !== false) { $doctorIcon = '🦴'; } elseif (strpos($specialty, 'ent') !== false) { $doctorIcon = '👂'; } elseif (strpos($specialty, 'eye') !== false || strpos($specialty, 'ophthalmology') !== false) { $doctorIcon = '👁️'; } ?>
-                    <div class="doctor-showcase-card">
-                        <div class="doctor-showcase-image">
-                            <img src="<?php echo htmlspecialchars($doctorImage); ?>"
-                                 alt="<?php echo htmlspecialchars($doctorName); ?>"
-                                 loading="lazy"
-                                 onerror="this.onerror=null;this.src='assets/images/default-doctor.png';">
-                            <span class="doctor-showcase-badge"><i class="bi bi-circle-fill"></i> <?php echo htmlspecialchars($doctorStatus); ?></span>
-                        </div>
-                        <div class="doctor-showcase-content">
-                            <h6><?php echo htmlspecialchars($doctorName); ?></h6>
-                            <div class="doctor-showcase-speciality"><?php echo htmlspecialchars($doctorIcon . ' ' . ($doctor['specialty'] ?: ($doctor['department'] ?: 'Specialist'))); ?></div>
-                            <div class="doctor-showcase-info">🧑‍⚕️ <?php echo (int)($doctor['experience_years'] ?? 0); ?> Years Experience</div>
-                            <div class="doctor-showcase-info">🎓 <?php echo htmlspecialchars($doctor['qualifications'] ?: 'Board certified specialist'); ?></div>
-                            <div class="doctor-showcase-info">💳 NPR <?php echo number_format((float)($doctor['consultation_fee'] ?? 0), 2); ?></div>
-                            <div class="doctor-showcase-buttons">
-                                <a href="book-appointment.php" class="doctor-showcase-btn doctor-showcase-btn-primary">📅 Book</a>
-                                <a href="doctor-profile.php?id=<?php echo (int)$doctor['id']; ?>" class="doctor-showcase-btn doctor-showcase-btn-secondary">👁️ Profile</a>
-                            </div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        <?php else: ?>
-            <div class="text-muted">Doctor profiles will appear here once they are added to the system.</div>
-        <?php endif; ?>
-    </section>
-
-    <section class="card p-4 mb-4 doctor-showcase-section">
-        <div class="doctor-showcase-title text-center mb-4">
-            <span class="section-label">Specialists</span>
-            <h5 class="mt-2 mb-1">Meet our expert specialists</h5>
-            <p class="text-muted mb-0">Trusted doctor profiles for every care need.</p>
+    <section class="card p-4 mb-4">
+        <div class="mb-3">
+            <span class="section-label">Doctor Roster</span>
+            <h5 class="mt-2 mb-1">Our full medical team</h5>
+            <p class="text-muted mb-0">Browse our doctors by specialty, availability, and experience in a clean card layout.</p>
         </div>
 
         <?php if (!empty($doctorProfiles)): ?>
-            <div class="doctor-showcase-grid">
-                <?php foreach ($doctorProfiles as $doctorIndex => $doctor): ?>
-                    <?php $doctorStatus = $doctor['availability_status'] ?: $doctor['status']; ?>
-                    <?php $doctorName = trim((string)($doctor['name'] ?? '')); ?>
-                    <?php if ($doctorName === '' || strtolower($doctorName) === 'doctor' || strtolower($doctorName) === 'dr') { $doctorName = $doctorNamePool[$doctorIndex % count($doctorNamePool)]; } ?>
-                    <?php $doctorImage = !empty($doctor['profile_photo']) ? trim((string)$doctor['profile_photo']) : $doctorPhotoPool[$doctorIndex % count($doctorPhotoPool)]; ?>
-                    <?php $specialty = strtolower((string)($doctor['specialty'] ?? '')); ?>
-                    <?php $doctorIcon = '🏥'; ?>
-                    <?php if (strpos($specialty, 'dental') !== false) { $doctorIcon = '🦷'; } elseif (strpos($specialty, 'general') !== false) { $doctorIcon = '👨‍⚕️'; } elseif (strpos($specialty, 'pain') !== false) { $doctorIcon = '💊'; } elseif (strpos($specialty, 'hematology') !== false || strpos($specialty, 'blood') !== false) { $doctorIcon = '🩸'; } elseif (strpos($specialty, 'family') !== false) { $doctorIcon = '👨‍👩‍👧'; } elseif (strpos($specialty, 'gastro') !== false) { $doctorIcon = '🫃'; } elseif (strpos($specialty, 'respiratory') !== false) { $doctorIcon = '🫁'; } elseif (strpos($specialty, 'endocrine') !== false) { $doctorIcon = '🧬'; } elseif (strpos($specialty, 'cardio') !== false || strpos($specialty, 'cardiology') !== false) { $doctorIcon = '❤️'; } elseif (strpos($specialty, 'neuro') !== false) { $doctorIcon = '🧠'; } elseif (strpos($specialty, 'paediatric') !== false || strpos($specialty, 'pediatric') !== false) { $doctorIcon = '👶'; } elseif (strpos($specialty, 'dermatology') !== false) { $doctorIcon = '🩹'; } elseif (strpos($specialty, 'orthopedic') !== false || strpos($specialty, 'orthopaedic') !== false) { $doctorIcon = '🦴'; } elseif (strpos($specialty, 'ent') !== false) { $doctorIcon = '👂'; } elseif (strpos($specialty, 'eye') !== false || strpos($specialty, 'ophthalmology') !== false) { $doctorIcon = '👁️'; } ?>
-                    <?php $rating = isset($doctor['rating']) && $doctor['rating'] !== '' ? (float)$doctor['rating'] : round(4.5 + ($doctorIndex % 4) * 0.1, 1); ?>
-                    <div class="doctor-showcase-card">
-                        <div class="doctor-showcase-image">
-                            <img src="<?php echo htmlspecialchars($doctorImage); ?>"
-                                 alt="<?php echo htmlspecialchars($doctorName); ?>"
-                                 loading="lazy"
-                                 onerror="this.onerror=null;this.src='assets/images/default-doctor.png';">
-                            <span class="doctor-showcase-badge"><i class="bi bi-circle-fill"></i> <?php echo htmlspecialchars($doctorStatus); ?></span>
-                        </div>
-                        <div class="doctor-showcase-content">
-                            <h6><?php echo htmlspecialchars($doctorName); ?></h6>
-                            <div class="doctor-showcase-speciality"><?php echo htmlspecialchars($doctorIcon . ' ' . ($doctor['specialty'] ?: ($doctor['department'] ?: 'Specialist'))); ?></div>
-                            <div class="doctor-showcase-info">🎓 <?php echo htmlspecialchars($doctor['qualifications'] ?: 'Board certified specialist'); ?></div>
-                            <div class="doctor-showcase-info">🧑‍⚕️ <?php echo (int)($doctor['experience_years'] ?? 0); ?> Years Experience</div>
-                            <div class="doctor-showcase-info doctor-showcase-rating">⭐ <?php echo htmlspecialchars(number_format($rating, 1)); ?> · 120+ reviews</div>
-                            <div class="doctor-showcase-info">💳 NPR <?php echo number_format((float)($doctor['consultation_fee'] ?? 0), 2); ?></div>
-                            <div class="doctor-showcase-buttons">
-                                <a href="book-appointment.php?doctor_id=<?php echo (int)$doctor['id']; ?>" class="doctor-showcase-btn doctor-showcase-btn-primary">📅 Book Appointment</a>
-                                <a href="doctor-profile.php?id=<?php echo (int)$doctor['id']; ?>" class="doctor-showcase-btn doctor-showcase-btn-secondary">👁️ Profile</a>
+            <div class="row g-4 justify-content-start">
+                <?php foreach ($doctorProfiles as $doctor): ?>
+                    <?php
+                        $doctorStatus = $doctor['availability_status'] ?: $doctor['status'];
+                        $profilePhoto = !empty($doctor['profile_photo']) ? trim((string)$doctor['profile_photo']) : 'assets/images/default-doctor.png';
+                        $doctorName = trim((string)$doctor['name']) ?: 'Doctor';
+                        $doctorSpecialty = htmlspecialchars($doctor['specialty'] ?: ($doctor['department'] ?: 'General Medicine'));
+                        $doctorDept = htmlspecialchars($doctor['department'] ?: 'General Medicine');
+                    ?>
+                    <div class="col-12 col-md-6 col-lg-3 d-flex">
+                        <div class="card h-100 shadow-sm w-100">
+                            <div class="card-body d-flex flex-column">
+                                <div class="d-flex align-items-center mb-3 gap-3">
+                                    <img src="<?php echo htmlspecialchars($profilePhoto); ?>"
+                                         alt="<?php echo htmlspecialchars($doctorName); ?>"
+                                         class="rounded-circle"
+                                         style="width:72px; height:72px; object-fit:cover; border:2px solid #e9ecef;"
+                                         onerror="this.onerror=null;this.src='assets/images/default-doctor.png';">
+                                    <div>
+                                        <h6 class="mb-1"><?php echo htmlspecialchars($doctorName); ?></h6>
+                                        <p class="text-muted small mb-0"><?php echo $doctorDept; ?></p>
+                                    </div>
+                                </div>
+
+                                <p class="mb-1"><strong>Specialty:</strong> <?php echo $doctorSpecialty; ?></p>
+                                <p class="mb-1"><strong>Experience:</strong> <?php echo (int)($doctor['experience_years'] ?? 0); ?> yrs</p>
+                                <p class="mb-1 small text-muted"><?php echo htmlspecialchars($doctor['qualifications'] ?: 'Board certified specialist'); ?></p>
+                                <p class="small text-secondary mb-2"><?php echo htmlspecialchars($doctor['about'] ?: 'Bio not available.'); ?></p>
+
+                                <div class="mt-3">
+                                    <span class="badge <?php echo ($doctorStatus === 'Available') ? 'bg-success' : (($doctorStatus === 'Busy') ? 'bg-warning text-dark' : 'bg-secondary'); ?>">
+                                        <?php echo htmlspecialchars($doctorStatus); ?>
+                                    </span>
+                                </div>
+
+                                <div class="mt-3 mb-3">
+                                    <p class="mb-1"><strong>Fee:</strong> NPR <?php echo number_format((float)($doctor['consultation_fee'] ?? 0), 2); ?></p>
+                                    <p class="mb-0 small text-muted"><strong>Contact:</strong> <?php echo htmlspecialchars($doctor['contact_info'] ?: 'Not available'); ?></p>
+                                    <p class="mb-0 small text-muted"><strong>Working days:</strong> <?php echo htmlspecialchars($doctor['working_days'] ?: 'Not set'); ?></p>
+                                </div>
+
+                                <div class="mt-auto d-flex gap-2">
+                                    <a class="btn btn-sm btn-primary flex-fill" href="book-appointment.php?doctor_id=<?php echo (int)$doctor['id']; ?>">Book</a>
+                                    <a class="btn btn-sm btn-outline-secondary flex-fill" href="doctor-profile.php?id=<?php echo (int)$doctor['id']; ?>">Profile</a>
+                                </div>
                             </div>
                         </div>
                     </div>
                 <?php endforeach; ?>
             </div>
         <?php else: ?>
-            <div class="text-muted">Specialist profiles will appear here once they are added to the system.</div>
+            <div class="text-muted">No doctor profiles are available yet. Please check back later.</div>
         <?php endif; ?>
     </section>
 
@@ -1283,13 +1534,78 @@ if ($bedEmergencyAvailableResult) {
         <div class="col-xl-6">
             <div class="card p-4">
                 <h5 class="mb-3">Quick Actions</h5>
-                <div class="service-grid">
-                    <a class="service-card" href="book-appointment.php"><i class="bi bi-calendar-plus"></i><strong>Book Appointment</strong><p class="mb-0">Schedule care fast.</p></a>
-                    <a class="service-card" href="view_lab_test.php"><i class="bi bi-beaker"></i><strong>Lab Reports</strong><p class="mb-0">Review results.</p></a>
-                    <a class="service-card" href="buy_medicine.php"><i class="bi bi-bag-heart"></i><strong>Pharmacy</strong><p class="mb-0">Order medicines.</p></a>
-                    <a class="service-card" href="patient-billing.php"><i class="bi bi-wallet2"></i><strong>Billing</strong><p class="mb-0">View invoices.</p></a>
-                    <a class="service-card" href="chatbot.php"><i class="bi bi-chat-dots"></i><strong>Ask Hospital</strong><p class="mb-0">Search hospital information.</p></a>
-                    <a class="service-card" href="feedback.php"><i class="bi bi-chat-heart"></i><strong>Feedback</strong><p class="mb-0">Share your experience.</p></a>
+                <p class="text-muted small mb-0">Quick Actions are displayed in full width below for easier access.</p>
+                <div class="mt-3"><a href="#quick-actions" class="small">Jump to Quick Actions</a></div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Full-width Quick Actions -->
+    <section id="quick-actions" class="card p-4 mb-4">
+        <div class="container-fluid">
+            <style>
+                /* Scoped Quick Actions styles */
+                #quick-actions .service-card { display:flex; flex-direction:column; align-items:center; justify-content:center; text-align:center; padding:18px; border-radius:12px; background:#fff; box-shadow:0 6px 18px rgba(15,23,42,0.04); transition:transform .12s ease, box-shadow .12s ease; color:inherit; text-decoration:none; }
+                #quick-actions .service-card:focus, #quick-actions .service-card:hover { transform:translateY(-6px); box-shadow:0 14px 32px rgba(13,110,253,0.07); }
+                #quick-actions .service-card .sa-icon { display:flex; align-items:center; justify-content:center; width:88px; height:88px; border-radius:50%; background:#f1f5f9; font-size:40px; margin-bottom:12px; }
+                #quick-actions .service-card .sa-title { font-size:16px; font-weight:700; margin:0 0 6px 0; }
+                #quick-actions .service-card .sa-desc { margin:0; color:#6b7280; font-size:13px; }
+                #quick-actions .service-card { cursor:pointer; }
+                @media (prefers-reduced-motion: reduce) { #quick-actions .service-card { transition:none; } }
+            </style>
+
+            <h5 class="mb-3">Quick Actions</h5>
+            <div class="row gx-3 gy-3">
+                <div class="col-12 col-md-6 col-lg-3">
+                    <a class="service-card d-block h-100" href="book-appointment.php">
+                        <div class="sa-icon"><i class="bi bi-calendar2-plus" aria-hidden="true"></i></div>
+                        <div class="sa-title">Book Appointment</div>
+                        <div class="sa-desc">Schedule care fast.</div>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6 col-lg-3">
+                    <a class="service-card d-block h-100" href="my_lab_reports.php">
+                        <div class="sa-icon"><i class="bi bi-file-earmark-medical" aria-hidden="true"></i></div>
+                        <div class="sa-title">Lab Reports</div>
+                        <div class="sa-desc">Review results.</div>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6 col-lg-3">
+                    <a class="service-card d-block h-100" href="buy_medicine.php">
+                        <div class="sa-icon"><i class="bi bi-capsule" aria-hidden="true"></i></div>
+                        <div class="sa-title">Pharmacy</div>
+                        <div class="sa-desc">Order medicines.</div>
+                        
+                        
+                    </a>
+                </div>
+                <div class="col-12 col-md-6 col-lg-3">
+                    <a class="service-card d-block h-100" href="patient-billing.php">
+                        <div class="sa-icon"><i class="bi bi-credit-card-2-front" aria-hidden="true"></i></div>
+                        <div class="sa-title">Billing</div>
+                        <div class="sa-desc">View invoices.</div>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6 col-lg-3">
+                    <a class="service-card d-block h-100" href="patient-chat.php">
+                        <div class="sa-icon"><i class="bi bi-chat-square-text" aria-hidden="true"></i></div>
+                        <div class="sa-title">Chat with Doctor</div>
+                        <div class="sa-desc">Message your doctor.</div>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6 col-lg-3">
+                    <a class="service-card d-block h-100" href="chatbot.php">
+                        <div class="sa-icon"><i class="bi bi-chat-dots" aria-hidden="true"></i></div>
+                        <div class="sa-title">Ask Hospital</div>
+                        <div class="sa-desc">Search hospital information.</div>
+                    </a>
+                </div>
+                <div class="col-12 col-md-6 col-lg-3">
+                    <a class="service-card d-block h-100" href="feedback.php">
+                        <div class="sa-icon"><i class="bi bi-star" aria-hidden="true"></i></div>
+                        <div class="sa-title">Feedback</div>
+                        <div class="sa-desc">Share your experience.</div>
+                    </a>
                 </div>
             </div>
         </div>
@@ -1304,17 +1620,18 @@ if ($bedEmergencyAvailableResult) {
             </div>
         </div>
         <div class="department-grid">
-            <?php foreach ($departmentDefinitions as $slug => $department): ?>
+            <?php foreach ($departmentCatalog as $slug => $department): ?>
                 <?php $isActive = $selectedDepartment && $selectedDepartmentSlug === $slug; ?>
+                <?php $departmentImage = !empty($department['image']) ? $department['image'] : 'assets/images/default-doctor.png'; ?>
                 <div class="department-showcase-card <?php echo $isActive ? 'active' : ''; ?>">
-                    <img src="<?php echo htmlspecialchars($department['image']); ?>" alt="<?php echo htmlspecialchars($department['name']); ?>" class="department-showcase-image">
+                    <img src="<?php echo htmlspecialchars($departmentImage); ?>" alt="<?php echo htmlspecialchars($department['name']); ?>" class="department-showcase-image" onerror="this.onerror=null;this.src='assets/images/default-doctor.png';">
                     <div class="department-showcase-body">
                         <div class="d-flex justify-content-between align-items-start gap-2">
                             <h6 class="mb-1"><?php echo htmlspecialchars($department['name']); ?></h6>
                             <span class="department-fee">NPR 100</span>
                         </div>
-                        <p class="text-muted small mb-3"><?php echo htmlspecialchars($department['description']); ?></p>
-                        <a class="btn btn-sm btn-primary" href="dashboard.php?department=<?php echo urlencode($slug); ?>#department-doctors">Book Appointment</a>
+                        <p class="text-muted small mb-3"><?php echo htmlspecialchars($department['description'] ?: ($departmentDefinitions[$slug]['description'] ?? 'Specialized patient care.')); ?></p>
+                        <a class="btn btn-sm btn-primary" href="dashboard.php?department=<?php echo urlencode($slug); ?>&department_id=<?php echo (int)($department['id'] ?? 0); ?>#department-doctors">Book Appointment</a>
                     </div>
                 </div>
             <?php endforeach; ?>
@@ -1350,6 +1667,7 @@ if ($bedEmergencyAvailableResult) {
                                     <div class="text-muted small mb-2"><?php echo htmlspecialchars($doctor['specialty'] ?: ($doctor['department'] ?: $selectedDepartment['name'])); ?></div>
                                     <p class="mb-2"><strong><?php echo (int)($doctor['experience_years'] ?? 0); ?></strong> Years Experience</p>
                                     <p class="small text-secondary mb-2"><?php echo htmlspecialchars($doctor['qualifications'] ?: 'Board certified specialist'); ?></p>
+                                    <p class="small text-secondary mb-2"><?php echo htmlspecialchars($doctor['about'] ?: 'Bio not available.'); ?></p>
                                     <div class="text-warning mb-2" style="font-size:18px;">★★★★★</div>
 
                                     <span class="badge <?php echo ($doctorStatus === 'Available') ? 'bg-success' : (($doctorStatus === 'Busy') ? 'bg-warning text-dark' : 'bg-secondary'); ?> mb-3"><?php echo htmlspecialchars($doctorStatus); ?></span>
@@ -1360,7 +1678,7 @@ if ($bedEmergencyAvailableResult) {
                                     </div>
 
                                     <div class="mt-3">
-                                        <a href="#book-now" class="btn btn-primary doctor-book-btn" data-doctor-id="<?php echo (int)$doctor['id']; ?>">Book Appointment</a>
+                                        <a class="btn btn-primary" href="book-appointment.php?doctor_id=<?php echo (int)$doctor['id']; ?>&department=<?php echo urlencode((string)($doctor['department'] ?: $selectedDepartment['name'] ?: $doctor['specialty'])); ?>&department_id=<?php echo (int)($doctor['department_id'] ?? resolve_department_id_by_name($conn, (string)($doctor['department'] ?: $selectedDepartment['name'] ?: $doctor['specialty']))); ?>">Book Appointment</a>
                                     </div>
                                 </div>
                             </div>
@@ -1375,131 +1693,7 @@ if ($bedEmergencyAvailableResult) {
         </div>
     </section>
 
-    <section id="book-now" class="card p-4 mb-4">
-        <div class="d-flex justify-content-between align-items-start mb-4">
-            <div>
-                <span class="section-label">Book now</span>
-                <h5 class="mt-2 mb-1">Request an appointment</h5>
-                <p class="text-muted mb-0">Select a doctor, choose a date, and reserve an available slot.</p>
-            </div>
-            <a class="text-primary small mt-2" href="book-appointment.php">Full booking page</a>
-        </div>
-        <div class="alert alert-info py-2 mb-3">Appointment booking fee is <strong>NPR 100</strong> for every department.</div>
-        <form id="dashboard-booking-form" method="POST" action="dashboard.php">
-            <input type="hidden" name="book_appointment" value="1">
-            <input type="hidden" name="refresh_slots" id="dashboard-refresh-slots" value="0">
-            <?php if ($bookingMessage): ?>
-                <div class="alert alert-success py-2 mb-3"><?php echo htmlspecialchars($bookingMessage); ?></div>
-            <?php elseif ($bookingError): ?>
-                <div class="alert alert-danger py-2 mb-3"><?php echo htmlspecialchars($bookingError); ?></div>
-            <?php endif; ?>
-            <div class="row g-3">
-                <div class="col-md-4">
-                    <label class="form-label" for="doctor_id">Doctor</label>
-                    <select class="form-select" id="doctor_id" name="doctor_id" required>
-                        <option value="">Choose a doctor</option>
-                        <?php $bookingDoctors = $selectedDepartment ? $departmentDoctors : $doctorProfiles; ?>
-                        <?php foreach ($bookingDoctors as $doctor): ?>
-                            <?php $doctorStatus = $doctor['availability_status'] ?: $doctor['status']; ?>
-                            <option value="<?php echo (int)$doctor['id']; ?>" <?php echo $selectedDoctorId === (int)$doctor['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($doctor['name']); ?> — <?php echo htmlspecialchars($doctor['specialty']); ?> (<?php echo htmlspecialchars($doctorStatus); ?>)</option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label" for="appointment_date">Date</label>
-                    <input class="form-control" type="date" id="appointment_date" name="appointment_date" value="<?php echo htmlspecialchars($selectedDate); ?>" required>
-                </div>
-                <div class="col-md-4">
-                    <label class="form-label" for="appointment_time">Time</label>
-                    <select class="form-select" id="appointment_time" name="appointment_time" required>
-                        <option value="">Choose a slot</option>
-                        <?php foreach ($slotStatuses as $slotStatus): ?>
-                            <?php $slot = $slotStatus['slot']; $slotAvailable = !empty($slotStatus['available']); ?>
-                            <option value="<?php echo htmlspecialchars($slot); ?>" <?php echo $selectedTime !== '' && $selectedTime === $slot ? 'selected' : ''; ?> <?php echo $slotAvailable ? '' : 'disabled'; ?>><?php echo htmlspecialchars($slot); ?><?php echo $slotAvailable ? '' : ' (Booked)'; ?></option>
-                        <?php endforeach; ?>
-                    </select>
-                </div>
-            </div>
-            <?php if ($selectedDoctorId > 0 && $selectedDate !== '' && empty($availableSlots)): ?>
-                <div class="text-danger small mt-3">No available slots for the selected date.</div>
-            <?php endif; ?>
-            <div class="mt-4">
-                <button class="btn btn-primary" type="submit">Request Appointment</button>
-            </div>
-        </form>
-    </section>
-
-    <section class="card p-4 appointment-card mb-4">
-        <div class="d-flex justify-content-between align-items-start mb-4">
-            <div>
-                <span class="section-label">Verification OTP</span>
-                <h5 class="mt-2 mb-1">Secure check-in codes for approved visits</h5>
-                <p class="text-muted mb-0">Approved appointments will show a verification OTP here for hospital check-in.</p>
-            </div>
-            <a class="text-primary small" href="view_appointments.php">View all appointments</a>
-        </div>
-
-        <?php if (count($appointments) > 0): ?>
-            <div class="row g-3">
-                <?php foreach ($appointments as $appointment): ?>
-                    <?php
-                        $appointmentStatus = $appointment['status'] ?? '';
-                        $otpCode = $appointment['otp_code'] ?? '';
-                        $verificationStatus = $appointment['verification_status'] ?? '';
-                        $expiresAt = $appointment['expires_at'] ?? '';
-                        $isExpired = $expiresAt !== '' && strtotime($expiresAt) < time();
-                        $isVerified = $verificationStatus === 'Verified';
-                    ?>
-                    <div class="col-lg-6">
-                        <div class="card border-0 shadow-sm h-100">
-                            <div class="card-body">
-                                <div class="d-flex justify-content-between align-items-start gap-2 mb-3">
-                                    <div>
-                                        <h6 class="mb-1 fw-semibold"><?php echo htmlspecialchars($appointment['doctor_name']); ?></h6>
-                                        <div class="text-muted small"><?php echo htmlspecialchars($appointment['specialty']); ?></div>
-                                    </div>
-                                    <span class="status-pill status-<?php echo htmlspecialchars($appointmentStatus); ?>"><?php echo htmlspecialchars($appointmentStatus); ?></span>
-                                </div>
-
-                                <div class="small text-muted mb-3">
-                                    <div><?php echo htmlspecialchars($appointment['appointment_date']); ?> • <?php echo htmlspecialchars(substr($appointment['appointment_time'], 0, 5)); ?></div>
-                                </div>
-
-                                <?php if ($appointmentStatus === 'Approved'): ?>
-                                    <?php if ($isVerified): ?>
-                                        <div class="alert alert-success py-2 mb-0 small">✓ Your appointment has already been verified and is ready for your visit.</div>
-                                    <?php elseif ($isExpired): ?>
-                                    <?php elseif (!empty($otpCode)): ?>
-                                        <div class="border rounded-3 p-3 bg-light">
-                                            <div class="fw-semibold mb-2">Verification code</div>
-                                            <div class="otp-actions d-flex align-items-center justify-content-between gap-2 flex-wrap">
-                                                <div class="otp-value d-none fs-4 fw-bold text-primary letter-spacing-2"><?php echo htmlspecialchars($otpCode); ?></div>
-                                                <div class="d-flex gap-2 flex-wrap">
-                                                    <button type="button" class="btn btn-primary btn-sm otp-toggle-btn">Show OTP</button>
-                                                    <button type="button" class="btn btn-outline-primary btn-sm copy-otp-btn d-none" data-otp="<?php echo htmlspecialchars($otpCode); ?>">Copy OTP</button>
-                                                </div>
-                                            </div>
-                                            <div class="text-muted small mt-2">Present this code at the reception desk when you arrive.</div>
-                                        </div>
-                                    <?php else: ?>
-                                        <div class="alert alert-info py-2 mb-0 small">OTP is being prepared. Please check back shortly or refresh the page.</div>
-                                    <?php endif; ?>
-                                <?php elseif ($appointmentStatus === 'Pending'): ?>
-                                    <div class="alert alert-warning py-2 mb-0 small">⏳ Waiting for hospital approval. Your OTP will appear here once the appointment is approved.</div>
-                                <?php elseif ($appointmentStatus === 'Cancelled'): ?>
-                                    <div class="alert alert-danger py-2 mb-0 small">✕ This appointment was cancelled and no verification code is available.</div>
-                                <?php else: ?>
-                                    <div class="alert alert-secondary py-2 mb-0 small">No OTP details available for this appointment yet.</div>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    </div>
-                <?php endforeach; ?>
-            </div>
-        <?php else: ?>
-            <div class="text-muted">No appointments found yet. Book a new appointment to get started.</div>
-        <?php endif; ?>
-    </section>
+    <!-- Booking form removed from dashboard (kept in book-appointment.php) -->
 
     <section class="card p-4 appointment-card mb-4">
         <div class="d-flex justify-content-between align-items-center mb-4">

@@ -5,32 +5,54 @@ require_once 'db.php';
 
 $admin_name = $_SESSION['admin_name'];
 
+function safe_query_scalar(mysqli $conn = null, string $sql, int $default = 0): int {
+    if (!$conn instanceof mysqli) {
+        return $default;
+    }
+
+    $result = $conn->query($sql);
+    if (!$result) {
+        return $default;
+    }
+
+    $row = $result->fetch_assoc();
+    $result->free();
+
+    return isset($row['total']) ? (int)$row['total'] : $default;
+}
+
+function safe_query_rows(mysqli $conn = null, string $sql): array {
+    if (!$conn instanceof mysqli) {
+        return [];
+    }
+
+    $result = $conn->query($sql);
+    if (!$result) {
+        return [];
+    }
+
+    $rows = [];
+    while ($row = $result->fetch_assoc()) {
+        $rows[] = $row;
+    }
+
+    $result->free();
+    return $rows;
+}
+
 // Get report data
-$patientCount = $conn->query('SELECT COUNT(*) AS total FROM patients')->fetch_assoc()['total'];
-$doctorCount = $conn->query('SELECT COUNT(*) AS total FROM doctors')->fetch_assoc()['total'];
-$appointmentCount = $conn->query('SELECT COUNT(*) AS total FROM appointments')->fetch_assoc()['total'];
-$appointmentApproved = $conn->query("SELECT COUNT(*) AS total FROM appointments WHERE status = 'Approved'")->fetch_assoc()['total'];
-$appointmentCancelled = $conn->query("SELECT COUNT(*) AS total FROM appointments WHERE status = 'Cancelled'")->fetch_assoc()['total'];
+$patientCount = safe_query_scalar($conn, 'SELECT COUNT(*) AS total FROM patients');
+$doctorCount = safe_query_scalar($conn, 'SELECT COUNT(*) AS total FROM doctors');
+$appointmentCount = safe_query_scalar($conn, 'SELECT COUNT(*) AS total FROM appointments');
+$appointmentApproved = safe_query_scalar($conn, "SELECT COUNT(*) AS total FROM appointments WHERE status = 'Approved'");
+$appointmentCancelled = safe_query_scalar($conn, "SELECT COUNT(*) AS total FROM appointments WHERE status = 'Cancelled'");
 
-$totalBilled = $conn->query('SELECT SUM(amount) AS total FROM billings')->fetch_assoc()['total'] ?? 0;
-$totalPaid = $conn->query("SELECT SUM(amount) AS total FROM billings WHERE status = 'Paid'")->fetch_assoc()['total'] ?? 0;
-$totalPending = $totalBilled - $totalPaid;
+$totalBilled = safe_query_scalar($conn, 'SELECT SUM(amount) AS total FROM billings');
+$totalPaid = safe_query_scalar($conn, "SELECT SUM(amount) AS total FROM billings WHERE status = 'Paid'");
+$totalPending = max(0, $totalBilled - $totalPaid);
 
-$appointmentsByDoctor = [];
-$result = $conn->query("SELECT d.name, COUNT(a.id) AS count FROM appointments a JOIN doctors d ON a.doctor_id = d.id GROUP BY d.id, d.name ORDER BY count DESC");
-if ($result) {
-    while ($row = $result->fetch_assoc()) {
-        $appointmentsByDoctor[] = $row;
-    }
-}
-
-$appointmentsByStatus = [];
-$result = $conn->query("SELECT status, COUNT(*) AS count FROM appointments GROUP BY status");
-if ($result) {
-    while ($row = $result->fetch_assoc()) {
-        $appointmentsByStatus[] = $row;
-    }
-}
+$appointmentsByDoctor = safe_query_rows($conn, "SELECT d.name, COUNT(a.id) AS count FROM appointments a JOIN doctors d ON a.doctor_id = d.id GROUP BY d.id, d.name ORDER BY count DESC");
+$appointmentsByStatus = safe_query_rows($conn, "SELECT status, COUNT(*) AS count FROM appointments GROUP BY status");
 ?>
 <!DOCTYPE html>
 <html lang="en">

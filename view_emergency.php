@@ -3,7 +3,15 @@ require_once 'auth.php';
 require_admin();
 include 'db.php';
 
-$result = mysqli_query($conn, "SELECT * FROM emergency_alerts ORDER BY id DESC");
+$conn->query("CREATE TABLE IF NOT EXISTS emergency_alerts (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    patient_name VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'Pending',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+$result = $conn->query("SELECT * FROM emergency_alerts ORDER BY id DESC");
 ?>
 
 <!DOCTYPE html>

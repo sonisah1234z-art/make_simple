@@ -2,17 +2,6 @@
 session_start();
 include 'db.php';
 
-function ensure_feedback_table(mysqli $conn): void
-{
-    $conn->query("CREATE TABLE IF NOT EXISTS feedback (
-        id INT AUTO_INCREMENT PRIMARY KEY,
-        patient_name VARCHAR(255) NOT NULL,
-        rating INT NOT NULL DEFAULT 0,
-        comments TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )");
-}
-
 ensure_feedback_table($conn);
 
 /* Access control:

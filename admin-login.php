@@ -1,11 +1,12 @@
 <?php
 session_start();
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 include 'db.php';
 require_once 'auth.php';
 
-if (isset($_SESSION['admin_id'])) {
-    header('Location: admin-dashboard.php');
-    exit();
+if (isset($_SESSION['admin_id']) || ($_SESSION['role'] ?? '') === 'Admin') {
+    redirect_to_role_dashboard('Admin');
 }
 
 $error = '';
@@ -15,8 +16,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $password = $_POST['password'] ?? '';
 
     if (login_user($conn, 'admin', $username, $password)) {
-        header('Location: admin-dashboard.php');
-        exit();
+        redirect_to_role_dashboard('Admin');
     } else {
         $error = 'Invalid admin username or password.';
     }

@@ -12,10 +12,16 @@ $conn->query("CREATE TABLE IF NOT EXISTS nurse_shifts (
     shift_type VARCHAR(100) NOT NULL,
     shift_date DATE NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-)");
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
-$result = mysqli_query($conn,
-"SELECT * FROM nurse_shifts ORDER BY shift_date DESC");
+$result = $conn->query('SELECT * FROM nurse_shifts ORDER BY shift_date DESC');
+$shiftRows = [];
+if ($result instanceof mysqli_result) {
+    while ($row = $result->fetch_assoc()) {
+        $shiftRows[] = $row;
+    }
+    $result->free();
+}
 ?>
 
 <!DOCTYPE html>
@@ -171,7 +177,7 @@ tr:hover{
 
 <div class="card card1">
 👩‍⚕ Total Nurses<br>
-<?php echo mysqli_num_rows($result); ?>
+<?php echo count($shiftRows); ?>
 </div>
 
 <div class="card card2">
@@ -194,9 +200,7 @@ tr:hover{
 </tr>
 
 <?php
-mysqli_data_seek($result,0);
-
-while($row=mysqli_fetch_assoc($result)){
+foreach ($shiftRows as $row) {
 ?>
 
 <tr>

@@ -66,29 +66,6 @@ document.addEventListener("DOMContentLoaded", function () {
         if (!sidebarToggle.hasAttribute('aria-expanded')) sidebarToggle.setAttribute('aria-expanded', sidebar.classList.contains('d-none') ? 'false' : 'true');
     }
 
-    // Fallback: listen at document level in case the toggle is replaced or event binding failed
-    document.addEventListener('click', function (ev) {
-        var btn = ev.target.closest ? ev.target.closest('#sidebarToggle') : null;
-        if (btn) {
-            try {
-                console.log('[main.js] document-level catch: sidebarToggle clicked');
-            } catch (e) {}
-            ev.preventDefault();
-            if (sidebar) {
-                var shouldOpen = sidebar.classList.contains('d-none');
-                if (shouldOpen) {
-                    sidebar.classList.remove('d-none');
-                    btn.setAttribute('aria-expanded', 'true');
-                    document.documentElement.classList.add('sidebar-open');
-                } else {
-                    sidebar.classList.add('d-none');
-                    btn.setAttribute('aria-expanded', 'false');
-                    document.documentElement.classList.remove('sidebar-open');
-                }
-            }
-        }
-    });
-
     var chartCanvas = document.getElementById("adminChart");
     if (chartCanvas && window.Chart) {
         var values = (chartCanvas.dataset.values || "0,0,0,0")

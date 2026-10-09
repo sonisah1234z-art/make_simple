@@ -131,74 +131,259 @@ $techResult = $conn->query('SELECT id, name FROM lab_technicians ORDER BY name A
 <head>
 <title><?php echo $editing ? 'Edit' : 'Add'; ?> Lab Report</title>
 <link rel="stylesheet" href="assets/css/compact-ui.css">
-<style>.container{max-width:800px;margin:20px auto}.card{padding:18px;background:#fff;border-radius:10px}</style>
+<style>
+body {
+    margin: 0;
+    font-family: 'Segoe UI', Arial, sans-serif;
+    background: linear-gradient(135deg, #f4f8ff 0%, #eef4ff 100%);
+    color: #1e293b;
+}
+.page-shell {
+    min-height: 100vh;
+    padding: 24px 16px;
+}
+.container {
+    max-width: 900px;
+    margin: 0 auto;
+}
+.hero-card {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 20px 24px;
+    background: #fff;
+    border-radius: 20px;
+    box-shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+    margin-bottom: 20px;
+}
+.hero-icon {
+    width: 56px;
+    height: 56px;
+    border-radius: 16px;
+    display: grid;
+    place-items: center;
+    font-size: 28px;
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    color: #fff;
+}
+.hero-card h2 {
+    margin: 0 0 4px;
+    font-size: 24px;
+}
+.hero-card p {
+    margin: 0;
+    color: #64748b;
+}
+.card {
+    padding: 24px;
+    background: #fff;
+    border-radius: 20px;
+    box-shadow: 0 12px 35px rgba(15, 23, 42, 0.08);
+    border: 1px solid #e2e8f0;
+}
+.report-form {
+    display: grid;
+    gap: 16px;
+}
+.form-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
+}
+.field {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.field.full {
+    grid-column: 1 / -1;
+}
+label {
+    font-weight: 600;
+    color: #334155;
+}
+input, select, textarea {
+    width: 100%;
+    padding: 12px 14px;
+    border: 1px solid #cbd5e1;
+    border-radius: 12px;
+    font-size: 14px;
+    background: #fff;
+    box-sizing: border-box;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+input:focus, select:focus, textarea:focus {
+    outline: none;
+    border-color: #2563eb;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.16);
+}
+textarea {
+    min-height: 120px;
+    resize: vertical;
+}
+input[type="file"] {
+    border: none;
+    padding: 0;
+    background: transparent;
+}
+.upload-box {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 16px;
+    border: 1px dashed #93c5fd;
+    background: linear-gradient(90deg, #f8fbff, #eff6ff);
+    border-radius: 16px;
+}
+.upload-content {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.upload-label {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: fit-content;
+    padding: 10px 14px;
+    border-radius: 999px;
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+}
+.upload-help {
+    color: #64748b;
+    font-size: 13px;
+}
+.current-file {
+    color: #334155;
+    font-size: 14px;
+}
+.actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+.btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 11px 16px;
+    border: none;
+    border-radius: 999px;
+    text-decoration: none;
+    background: linear-gradient(135deg, #2563eb, #4f46e5);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+}
+.btn.secondary {
+    background: #f1f5f9;
+    color: #334155;
+    border: 1px solid #dbe4ef;
+}
+.alert-success, .alert-error {
+    padding: 12px 14px;
+    border-radius: 12px;
+    margin-bottom: 14px;
+}
+.alert-error {
+    background: #ffe7e7;
+    color: #b42318;
+}
+.alert-success {
+    background: #e7f8ef;
+    color: #027a48;
+}
+@media (max-width: 720px) {
+    .form-grid { grid-template-columns: 1fr; }
+    .hero-card { flex-direction: column; align-items: flex-start; }
+}
+</style>
 </head>
 <body>
-<div class="container">
-    <h2><?php echo $editing ? 'Edit' : 'Add'; ?> Lab Report</h2>
-    <div class="card">
-        <?php if (!empty($errors)): ?>
-            <div style="background:#ffe6e6;padding:10px;border-radius:6px;margin-bottom:12px;color:#a00">
-                <?php foreach ($errors as $err) echo '<div>' . htmlspecialchars($err) . '</div>'; ?>
-            </div>
-        <?php endif; ?>
-        <?php if (!empty($_SESSION['flash_success'])): ?>
-            <div style="background:#e6ffed;padding:10px;border-radius:6px;margin-bottom:12px;color:#02733a">
-                <?php echo htmlspecialchars($_SESSION['flash_success']); unset($_SESSION['flash_success']); ?>
-            </div>
-        <?php endif; ?>
-        <form method="POST" enctype="multipart/form-data">
-            <div class="mb-2">
-                <label>Patient</label>
-                <select name="patient_id" required>
-                    <option value="">Select patient</option>
-                    <?php while ($p = $patients->fetch_assoc()): ?>
-                        <option value="<?php echo (int)$p['id']; ?>" <?php echo $editing && $record['patient_id']==$p['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($p['name']); ?></option>
-                    <?php endwhile; ?>
-                </select>
-            </div>
-            <div class="mb-2">
-                <label>Test Type</label>
-                <input type="text" name="test_type" required value="<?php echo $editing ? htmlspecialchars($record['test_type']) : ''; ?>">
-            </div>
-            <div class="mb-2">
-                <label>Result</label>
-                <textarea name="result" rows="6"><?php echo $editing ? htmlspecialchars($record['result']) : ''; ?></textarea>
-            </div>
-            <div class="mb-2">
-                <label>Attachment (PDF/Image)</label>
-                <input type="file" name="attachment" accept=".pdf,image/*">
-                <?php if ($editing && !empty($record['file'])): ?>
-                    <div>Current: <a href="uploads/<?php echo htmlspecialchars($record['file']); ?>" target="_blank">Download</a></div>
-                <?php endif; ?>
-            </div>
-            <div class="mb-2">
-                <label>Status</label>
-                <select name="status">
-                    <option value="Pending" <?php echo $editing && $record['status']=='Pending' ? 'selected' : ''; ?>>Pending</option>
-                    <option value="Completed" <?php echo $editing && $record['status']=='Completed' ? 'selected' : ''; ?>>Completed</option>
-                </select>
-            </div>
-            <?php if (isset($_SESSION['admin_id'])): ?>
-                <div class="mb-2">
-                    <label>Assign Technician</label>
-                    <select name="technician_id">
-                        <option value="">-- Unassigned --</option>
-                        <?php while ($t = $techResult->fetch_assoc()): ?>
-                            <option value="<?php echo (int)$t['id']; ?>" <?php echo $editing && !empty($record['technician_id']) && $record['technician_id']==$t['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($t['name']); ?></option>
-                        <?php endwhile; ?>
-                    </select>
-                </div>
-            <?php else: ?>
-                <?php if (isset($_SESSION['lab_technician_id'])): ?>
-                    <input type="hidden" name="technician_id" value="<?php echo (int)$_SESSION['lab_technician_id']; ?>">
-                <?php endif; ?>
-            <?php endif; ?>
+<div class="page-shell">
+    <div class="container">
+        <div class="hero-card">
+            <div class="hero-icon">🧪</div>
             <div>
-                <button type="submit" class="btn">Save Report</button>
-                <a class="btn" href="lab_technician.php">Cancel</a>
+                <h2><?php echo $editing ? 'Edit' : 'Upload'; ?> Lab Report</h2>
+                <p>Record test results and attach a PDF or image report in a polished, easy-to-use form.</p>
             </div>
-        </form>
+        </div>
+        <div class="card">
+            <?php if (!empty($errors)): ?>
+                <div class="alert-error">
+                    <?php foreach ($errors as $err) echo '<div>' . htmlspecialchars($err) . '</div>'; ?>
+                </div>
+            <?php endif; ?>
+            <?php if (!empty($_SESSION['flash_success'])): ?>
+                <div class="alert-success">
+                    <?php echo htmlspecialchars($_SESSION['flash_success']); unset($_SESSION['flash_success']); ?>
+                </div>
+            <?php endif; ?>
+            <form method="POST" enctype="multipart/form-data" class="report-form">
+                <div class="form-grid">
+                    <div class="field">
+                        <label for="patient_id">Patient</label>
+                        <select id="patient_id" name="patient_id" required>
+                            <option value="">Select patient</option>
+                            <?php while ($p = $patients->fetch_assoc()): ?>
+                                <option value="<?php echo (int)$p['id']; ?>" <?php echo $editing && $record['patient_id']==$p['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($p['name']); ?></option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+                    <div class="field">
+                        <label for="status">Status</label>
+                        <select id="status" name="status">
+                            <option value="Pending" <?php echo $editing && $record['status']=='Pending' ? 'selected' : ''; ?>>Pending</option>
+                            <option value="Completed" <?php echo $editing && $record['status']=='Completed' ? 'selected' : ''; ?>>Completed</option>
+                        </select>
+                    </div>
+                </div>
+                <div class="field full">
+                    <label for="test_type">Test Type</label>
+                    <input id="test_type" type="text" name="test_type" required value="<?php echo $editing ? htmlspecialchars($record['test_type']) : ''; ?>">
+                </div>
+                <div class="field full">
+                    <label for="result">Result</label>
+                    <textarea id="result" name="result" rows="6"><?php echo $editing ? htmlspecialchars($record['result']) : ''; ?></textarea>
+                </div>
+                <div class="upload-box">
+                    <div class="upload-content">
+                        <label class="upload-label" for="attachment">Choose File</label>
+                        <span class="upload-help">PDF, JPG, JPEG, or PNG up to 5 MB</span>
+                        <input id="attachment" type="file" name="attachment" accept=".pdf,image/*">
+                    </div>
+                    <?php if ($editing && !empty($record['file'])): ?>
+                        <div class="current-file">Current attachment: <a href="uploads/<?php echo htmlspecialchars($record['file']); ?>" target="_blank">Download</a></div>
+                    <?php endif; ?>
+                </div>
+                <?php if (isset($_SESSION['admin_id'])): ?>
+                    <div class="field full">
+                        <label for="technician_id">Assign Technician</label>
+                        <select id="technician_id" name="technician_id">
+                            <option value="">-- Unassigned --</option>
+                            <?php while ($t = $techResult->fetch_assoc()): ?>
+                                <option value="<?php echo (int)$t['id']; ?>" <?php echo $editing && !empty($record['technician_id']) && $record['technician_id']==$t['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($t['name']); ?></option>
+                            <?php endwhile; ?>
+                        </select>
+                    </div>
+                <?php else: ?>
+                    <?php if (isset($_SESSION['lab_technician_id'])): ?>
+                        <input type="hidden" name="technician_id" value="<?php echo (int)$_SESSION['lab_technician_id']; ?>">
+                    <?php endif; ?>
+                <?php endif; ?>
+                <div class="actions">
+                    <button type="submit" class="btn">Save Report</button>
+                    <a class="btn secondary" href="lab_technician.php">Cancel</a>
+                </div>
+            </form>
+        </div>
     </div>
 </div>
 </body>

@@ -150,7 +150,12 @@ function sendEmailWithPhpMail($to, $subject, $body) {
     $headers .= "Reply-To: " . SENDER_EMAIL . "\r\n";
     $headers .= "X-Mailer: PHP/" . phpversion() . "\r\n";
 
-    $sent = mail($to, $subject, $body, $headers);
+    if (stripos(PHP_OS, 'WIN') === 0 && ini_get('SMTP') === '' && ini_get('smtp_port') === '') {
+        error_log('PHP mail() fallback skipped because php.ini SMTP and smtp_port are not configured on Windows.');
+        return false;
+    }
+
+    $sent = @mail($to, $subject, $body, $headers);
     if (!$sent) {
         error_log('PHP mail() delivery failed for ' . $to . '.');
     }

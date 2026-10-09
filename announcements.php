@@ -18,6 +18,7 @@ function ensure_announcements_schema(mysqli $conn): void
     $requiredColumns = [
         'title' => 'VARCHAR(255) NOT NULL',
         'message' => 'TEXT NOT NULL',
+        'attachment' => 'VARCHAR(255) DEFAULT NULL',
         'target_role' => "VARCHAR(50) NOT NULL DEFAULT 'All Users'",
         'publish_date' => 'DATE NOT NULL DEFAULT (CURRENT_DATE)',
         'expiry_date' => 'DATE NULL',
@@ -50,6 +51,44 @@ function ensure_announcements_schema(mysqli $conn): void
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
 
     $conn->query("UPDATE announcements SET status = CASE WHEN expiry_date IS NOT NULL AND expiry_date < CURRENT_DATE THEN 'Expired' ELSE 'Active' END WHERE status IS NULL OR status = ''");
+}
+
+/**
+ * Get the latest unseen announcement for a user (by role and id).
+ * Returns one announcement array or null.
+ */
+function get_latest_unseen_announcement(mysqli $conn, string $role, ?int $userId = null): ?array
+{
+    ensure_announcements_schema($conn);
+    $context = get_current_user_context();
+    $role = $role ?: $context['role'];
+    $userId = $userId ?? $context['id'];
+    $userKey = $role . ':' . ($userId ?? 0);
+    $escapedUserKey = $conn->real_escape_string($userKey);
+
+    $viewResult = $conn->query("SELECT last_seen_at FROM announcement_views WHERE user_key = '$escapedUserKey' LIMIT 1");
+    $lastSeenAt = null;
+    if ($viewResult && $viewResult->num_rows > 0) {
+        $lastSeenAt = $viewResult->fetch_assoc()['last_seen_at'];
+    }
+
+    $targetRole = role_to_target_value($role);
+    $escapedTarget = $conn->real_escape_string($targetRole);
+
+    if (!$lastSeenAt) {
+        // No record: return the most recent active announcement for this role
+        $sql = "SELECT * FROM announcements WHERE status = 'Active' AND (publish_date IS NULL OR publish_date <= CURRENT_DATE) AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE) AND (target_role = 'All Users' OR target_role = '$escapedTarget') ORDER BY publish_date DESC, id DESC LIMIT 1";
+    } else {
+        // Return the most recent announcement published after last_seen_at
+        $escapedLast = $conn->real_escape_string($lastSeenAt);
+        $sql = "SELECT * FROM announcements WHERE status = 'Active' AND (publish_date IS NULL OR publish_date <= CURRENT_DATE) AND (expiry_date IS NULL OR expiry_date >= CURRENT_DATE) AND (target_role = 'All Users' OR target_role = '$escapedTarget') AND publish_date > DATE('$escapedLast') ORDER BY publish_date DESC, id DESC LIMIT 1";
+    }
+
+    $result = $conn->query($sql);
+    if ($result && $row = $result->fetch_assoc()) {
+        return $row;
+    }
+    return null;
 }
 
 function role_to_target_value(string $role): string

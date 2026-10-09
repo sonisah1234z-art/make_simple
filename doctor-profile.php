@@ -211,6 +211,19 @@ $photoUrl = $doctor['profile_photo'] ?: $defaults['photo'];
 $consultationFeeValue = (float)($doctor['consultation_fee'] ?? 0);
 $consultationFee = number_format($consultationFeeValue > 0 ? $consultationFeeValue : $defaults['fee'], 2);
 $department = $doctor['department'] ?: $doctor['specialty'];
+$departmentId = 0;
+if ($department !== '') {
+    $deptStmt = $conn->prepare('SELECT id FROM departments WHERE status = "Active" AND LOWER(TRIM(name)) = LOWER(TRIM(?)) LIMIT 1');
+    if ($deptStmt) {
+        $deptStmt->bind_param('s', $department);
+        $deptStmt->execute();
+        $deptResult = $deptStmt->get_result();
+        if ($deptResult && $row = $deptResult->fetch_assoc()) {
+            $departmentId = (int)($row['id'] ?? 0);
+        }
+        $deptStmt->close();
+    }
+}
 $qualifications = $doctor['qualifications'] ?: $defaults['qualifications'];
 $about = $doctor['about'] ?: $defaults['about'];
 $contactInfo = $doctor['contact_info'] ?: ($doctor['phone'] ?: $defaults['contact_info']);
@@ -256,7 +269,7 @@ $workingDays = $doctor['working_days'] ?: $defaults['working_days'];
                 <p style="color:#64748b; font-size:16px;"><?php echo htmlspecialchars($doctor['specialty']); ?></p>
                 <p style="line-height:1.7; color:#334155;"><?php echo htmlspecialchars($about); ?></p>
                 <div class="actions">
-                    <a class="btn btn-primary" href="book-appointment.php?doctor_id=<?php echo (int)$doctor['id']; ?>&department=<?php echo urlencode($doctor['department'] ?: $doctor['specialty']); ?>">Book Appointment</a>
+                    <a class="btn btn-primary" href="book-appointment.php?doctor_id=<?php echo (int)$doctor['id']; ?>&department=<?php echo urlencode($doctor['department'] ?: $doctor['specialty']); ?>&department_id=<?php echo (int)$departmentId; ?>">Book Appointment</a>
                     <a class="btn btn-secondary" href="book-appointment.php">View All Doctors</a>
                 </div>
             </div>

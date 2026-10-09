@@ -13,8 +13,8 @@ $patient_id = $_SESSION['patient_id'];
 
 $result = $conn->query("
 SELECT * FROM notifications
-WHERE patient_id='" . intval($patient_id) . "'
-ORDER BY created_at DESC
+WHERE patient_id='" . intval($patient_id) . "' AND delivered_at IS NOT NULL
+ORDER BY delivered_at DESC
 ");
 ?>
 

@@ -12,8 +12,60 @@ $conn->query("CREATE TABLE IF NOT EXISTS departments (
     name VARCHAR(255) NOT NULL UNIQUE,
     description TEXT NULL,
     status VARCHAR(20) NOT NULL DEFAULT 'Active',
+    image_path VARCHAR(255) NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+
+// Ensure image_path column exists for older installations
+$checkImageCol = $conn->query("SHOW COLUMNS FROM departments LIKE 'image_path'");
+if ($checkImageCol && $checkImageCol->num_rows === 0) {
+    $conn->query("ALTER TABLE departments ADD COLUMN image_path VARCHAR(255) NULL");
+}
+
+// Seed a default set of departments if they are missing so Patient Dashboard and Admin stay in sync
+$defaultDepartments = [
+    'Critical Care Medicine' => 'Intensive monitoring and advanced support for critically ill patients.',
+    'Dental' => 'Complete oral care, dental surgery, and preventive dentistry services.',
+    'Dermatology' => 'Skin, hair, and nail treatments from diagnosis to cosmetic care.',
+    'Emergency Medicine' => 'Urgent care and rapid response for acute injuries and illnesses.',
+    'ENT-HNS Department' => 'Specialists for ear, nose, throat, voice and airway care.',
+    'Orthopedics and Trauma Surgery' => 'Bone, joint, muscle, and trauma surgery for comprehensive mobility care.',
+    'General Practice' => 'Primary care services for preventive health and everyday wellness.',
+    'Internal Medicine' => 'Complex adult medicine, chronic disease management, and diagnostics.',
+    'Neurology' => 'Care for neurological disorders, headaches, seizures and brain health.',
+    'Neurosurgery' => 'Surgical treatment of the brain, spine and nervous system.',
+    'Nephrology' => 'Kidney care, dialysis support and transplant evaluation services.',
+    'Obstetrics & Gynecology' => 'Women’s health, pregnancy, and reproductive care.',
+    'Paediatrics' => 'Child and adolescent care for growth, immunizations and wellness.',
+    'Psychiatry & Mental Health' => 'Mental health support, therapy and psychiatric care services.',
+    'Plastic Surgery and Burns' => 'Reconstructive and cosmetic surgery with burn recovery support.',
+    'Pharmacy' => 'Medication dispensing, counseling and pharmacy support services.',
+    'Radiology' => 'Imaging diagnostics including X-ray, CT, MRI and ultrasound.',
+    'Urology and Kidney Transplant Surgery' => 'Urological care and kidney transplant planning for complex cases.',
+    'General Surgery' => 'Surgical care across a broad range of procedures.',
+    'Anaesthesiology' => 'Perioperative care, anesthesia and pain management.',
+    'Pathology' => 'Diagnostic laboratory services and pathology reporting.',
+    'Gastroenterology' => 'Digestive health care for liver, stomach, intestine, and gut-related conditions.',
+    'Pulmonology & Critical Care' => 'Respiratory care, ICU and advanced lung support services.',
+    'Surgical Gastroenterology' => 'Surgical treatment for gastrointestinal conditions.'
+];
+
+// Insert missing default departments (no duplicates, case-insensitive check)
+$insertDeptStmt = $conn->prepare('INSERT INTO departments (name, description, status, image_path) VALUES (?, ?, ?, ?)');
+foreach ($defaultDepartments as $dname => $ddesc) {
+    $check = $conn->prepare('SELECT id FROM departments WHERE LOWER(name) = LOWER(?) LIMIT 1');
+    $check->bind_param('s', $dname);
+    $check->execute();
+    $checkRes = $check->get_result();
+    if (!($checkRes && $checkRes->num_rows > 0)) {
+        $emptyImg = null;
+        $status = 'Active';
+        $insertDeptStmt->bind_param('ssss', $dname, $ddesc, $status, $emptyImg);
+        $insertDeptStmt->execute();
+    }
+    $check->close();
+}
+if ($insertDeptStmt) $insertDeptStmt->close();
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     if (isset($_POST['delete_department'])) {
@@ -32,15 +84,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $description = trim($conn->real_escape_string($_POST['description'] ?? ''));
         $status = in_array($_POST['status'] ?? 'Active', ['Active', 'Inactive'], true) ? $_POST['status'] : 'Active';
 
+        // Handle optional image upload
+        $imagePath = null;
+        if (!empty($_FILES['image_file']) && is_uploaded_file($_FILES['image_file']['tmp_name'])) {
+            $uploadDir = __DIR__ . '/uploads/departments';
+            if (!is_dir($uploadDir)) {
+                mkdir($uploadDir, 0755, true);
+            }
+            $f = $_FILES['image_file'];
+            if ($f['error'] === UPLOAD_ERR_OK) {
+                $ext = pathinfo($f['name'], PATHINFO_EXTENSION);
+                $filename = 'dept_' . time() . '_' . bin2hex(random_bytes(6)) . ($ext ? '.' . $ext : '');
+                $target = $uploadDir . '/' . $filename;
+                if (@move_uploaded_file($f['tmp_name'], $target)) {
+                    $imagePath = 'uploads/departments/' . $filename;
+                }
+            }
+        }
+
         if ($name === '') {
             $error = 'Department name is required.';
         } else {
             if ($department_id > 0) {
-                $stmt = $conn->prepare('UPDATE departments SET name = ?, description = ?, status = ? WHERE id = ?');
-                $stmt->bind_param('sssi', $name, $description, $status, $department_id);
+                if ($imagePath !== null) {
+                    $stmt = $conn->prepare('UPDATE departments SET name = ?, description = ?, status = ?, image_path = ? WHERE id = ?');
+                    $stmt->bind_param('ssssi', $name, $description, $status, $imagePath, $department_id);
+                } else {
+                    $stmt = $conn->prepare('UPDATE departments SET name = ?, description = ?, status = ? WHERE id = ?');
+                    $stmt->bind_param('sssi', $name, $description, $status, $department_id);
+                }
             } else {
-                $stmt = $conn->prepare('INSERT INTO departments (name, description, status) VALUES (?, ?, ?)');
-                $stmt->bind_param('sss', $name, $description, $status);
+                $stmt = $conn->prepare('INSERT INTO departments (name, description, status, image_path) VALUES (?, ?, ?, ?)');
+                $stmt->bind_param('ssss', $name, $description, $status, $imagePath);
             }
 
             if ($stmt->execute()) {
@@ -54,7 +129,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 $departments = [];
-$result = $conn->query('SELECT id, name, description, status, created_at FROM departments ORDER BY name ASC');
+$result = $conn->query('SELECT id, name, description, status, image_path, created_at FROM departments ORDER BY name ASC');
 if ($result) {
     while ($row = $result->fetch_assoc()) {
         $departments[] = $row;
@@ -64,7 +139,7 @@ if ($result) {
 $editDepartment = null;
 if (!empty($_GET['edit'])) {
     $editId = (int)$_GET['edit'];
-    $editStmt = $conn->prepare('SELECT id, name, description, status FROM departments WHERE id = ? LIMIT 1');
+    $editStmt = $conn->prepare('SELECT id, name, description, status, image_path FROM departments WHERE id = ? LIMIT 1');
     $editStmt->bind_param('i', $editId);
     $editStmt->execute();
     $editResult = $editStmt->get_result();
@@ -109,6 +184,7 @@ if (!empty($_GET['edit'])) {
                     <thead>
                         <tr>
                             <th>Name</th>
+                            <th>Logo</th>
                             <th>Description</th>
                             <th>Status</th>
                             <th>Actions</th>
@@ -116,11 +192,18 @@ if (!empty($_GET['edit'])) {
                     </thead>
                     <tbody>
                         <?php if (count($departments) === 0): ?>
-                            <tr><td colspan="4" class="text-muted py-4">No departments have been created yet.</td></tr>
+                            <tr><td colspan="5" class="text-muted py-4">No departments have been created yet.</td></tr>
                         <?php else: ?>
                             <?php foreach ($departments as $department): ?>
                                 <tr>
                                     <td><?php echo htmlspecialchars($department['name']); ?></td>
+                                    <td>
+                                        <?php if (!empty($department['image_path'])): ?>
+                                            <img src="<?php echo htmlspecialchars($department['image_path']); ?>" alt="logo" style="height:48px; width:48px; object-fit:cover; border-radius:6px;">
+                                        <?php else: ?>
+                                            —
+                                        <?php endif; ?>
+                                    </td>
                                     <td><?php echo htmlspecialchars($department['description'] ?: '—'); ?></td>
                                     <td><span class="badge rounded-pill <?php echo $department['status'] === 'Active' ? 'bg-success-subtle text-success' : 'bg-secondary-subtle text-secondary'; ?>"><?php echo htmlspecialchars($department['status']); ?></span></td>
                                     <td>
@@ -149,13 +232,20 @@ if (!empty($_GET['edit'])) {
                     <p><?php echo $editDepartment ? 'Update department details.' : 'Create a new hospital department.'; ?></p>
                 </div>
             </div>
-            <form method="POST" action="admin-departments.php" class="row g-2">
+            <form method="POST" action="admin-departments.php" class="row g-2" enctype="multipart/form-data">
                 <?php if ($editDepartment): ?>
                     <input type="hidden" name="department_id" value="<?php echo (int)$editDepartment['id']; ?>">
                 <?php endif; ?>
                 <div class="col-12">
                     <label class="form-label" for="name">Department Name</label>
                     <input id="name" name="name" type="text" class="form-control" value="<?php echo htmlspecialchars($editDepartment['name'] ?? ''); ?>" required>
+                </div>
+                <div class="col-12">
+                    <label class="form-label" for="image_file">Department Photo / Logo (optional)</label>
+                    <?php if (!empty($editDepartment['image_path'])): ?>
+                        <div class="mb-2"><img src="<?php echo htmlspecialchars($editDepartment['image_path']); ?>" alt="current" style="height:72px; width:72px; object-fit:cover; border-radius:8px;"></div>
+                    <?php endif; ?>
+                    <input id="image_file" name="image_file" type="file" accept="image/*" class="form-control">
                 </div>
                 <div class="col-12">
                     <label class="form-label" for="description">Description</label>

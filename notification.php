@@ -5,7 +5,7 @@ require_once 'db.php';
 
 $patient_id = current_patient_id();
 
-$result = $conn->query("SELECT * FROM notifications WHERE patient_id='" . intval($patient_id) . "' ORDER BY id DESC");
+$result = $conn->query("SELECT * FROM notifications WHERE patient_id='" . intval($patient_id) . "' AND delivered_at IS NOT NULL ORDER BY delivered_at DESC");
 ?>
 
 <!DOCTYPE html>

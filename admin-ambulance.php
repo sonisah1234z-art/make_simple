@@ -1,9 +1,19 @@
 <?php
 require_once 'auth.php';
-require_admin();
+
+if (isset($_SESSION['patient_id']) && !isset($_SESSION['admin_id']) && !isset($_SESSION['receptionist_id'])) {
+    header('Location: dashboard.php');
+    exit();
+}
+
+if (!isset($_SESSION['admin_id']) && !isset($_SESSION['receptionist_id'])) {
+    header('Location: admin-login.php');
+    exit();
+}
+
 require_once 'db.php';
 
-$admin_name = $_SESSION['admin_name'];
+$admin_name = $_SESSION['admin_name'] ?? $_SESSION['receptionist_name'] ?? 'Staff';
 
 // Handle form submissions
 if ($_SERVER['REQUEST_METHOD'] == 'POST') {

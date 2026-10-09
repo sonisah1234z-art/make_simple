@@ -1,11 +1,15 @@
 <?php
 require_once 'auth.php';
-require_admin();
 require_once 'db.php';
 
-$admin_name = $_SESSION['admin_name'];
+// Allow admin and lab technicians to view patient list
+if (!isset($_SESSION['admin_id']) && !isset($_SESSION['lab_technician_id'])) {
+    require_admin();
+}
+
+$user_name = $_SESSION['admin_name'] ?? $_SESSION['lab_technician_name'] ?? 'User';
 $patients = [];
-$result = $conn->query('SELECT id, name, email, phone, created_at FROM patients ORDER BY created_at DESC');
+$result = $conn->query('SELECT id, patient_code, patient_type, name, email, phone, date_of_birth, created_at FROM patients ORDER BY created_at DESC');
 if ($result) {
     while ($row = $result->fetch_assoc()) {
         $patients[] = $row;
@@ -18,6 +22,10 @@ if ($result) {
 <meta charset="UTF-8">
 <title>Manage Patients</title>
 <style>
+.badge-patient { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 700; letter-spacing: 0.02em; }
+.badge-online { background: #e0f2fe; color: #0369a1; }
+.badge-walkin { background: #dcfce7; color: #166534; }
+.badge-emergency { background: #fee2e2; color: #991b1b; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
         min-height: 100vh;
@@ -64,10 +72,10 @@ if ($result) {
     <div class="topbar">
         <div>
             <h1>Manage Patients</h1>
-            <p class="subtitle">Admin <?php echo htmlspecialchars($admin_name); ?>, review patient registrations and details.</p>
+            <p class="subtitle">User <?php echo htmlspecialchars($user_name); ?>, review patient registrations and details.</p>
         </div>
         <div>
-            <a class="button" href="admin-dashboard.php">Dashboard</a>
+            <a class="button" href="<?php echo isset($_SESSION['admin_id']) ? 'admin-dashboard.php' : 'lab_technician_dashboard.php'; ?>">Dashboard</a>
             <a href="index.php" style="color: #93c5fd; text-decoration: none; margin-left: 12px; font-weight: 600;">Home</a>
             <a class="button" href="logout.php">Logout</a>
         </div>
@@ -77,22 +85,35 @@ if ($result) {
         <table>
             <thead>
                 <tr>
+                            <th>Patient ID</th>
                     <th>Name</th>
                     <th>Email</th>
                     <th>Phone</th>
+                    <th>Type</th>
+                    <th>Date of Birth</th>
                     <th>Registered</th>
+                    <th>Action</th>
                 </tr>
             </thead>
             <tbody>
                 <?php if (count($patients) === 0): ?>
-                    <tr><td colspan="4" class="empty">No registered patients yet.</td></tr>
+                    <tr><td colspan="5" class="empty">No registered patients yet.</td></tr>
                 <?php else: ?>
-                    <?php foreach ($patients as $patient): ?>
+                    <?php foreach ($patients as $patient):
+                        $type = $patient['patient_type'] ?: 'Online';
+                        $normalizedType = strtolower(trim((string)$type));
+                        $badgeClass = $normalizedType === 'emergency' ? 'badge-emergency' : ($normalizedType === 'walk-in' ? 'badge-walkin' : 'badge-online');
+                        $badgeLabel = $normalizedType === 'emergency' ? 'Emergency' : ($normalizedType === 'walk-in' ? 'Walk-in' : 'Online');
+                    ?>
                         <tr>
+                            <td><?php echo htmlspecialchars($patient['patient_code'] ?: ''); ?></td>
                             <td><?php echo htmlspecialchars($patient['name']); ?></td>
                             <td><?php echo htmlspecialchars($patient['email']); ?></td>
                             <td><?php echo htmlspecialchars($patient['phone']); ?></td>
+                            <td><span class="badge-patient <?php echo $badgeClass; ?>"><?php echo htmlspecialchars($badgeLabel); ?></span></td>
+                            <td><?php echo htmlspecialchars($patient['date_of_birth'] ?? ''); ?></td>
                             <td><?php echo htmlspecialchars($patient['created_at']); ?></td>
+                            <td><a class="button" href="patient_profile.php?id=<?php echo (int)$patient['id']; ?>" style="padding: 8px 12px; font-size: 13px;">View</a></td>
                         </tr>
                     <?php endforeach; ?>
                 <?php endif; ?>

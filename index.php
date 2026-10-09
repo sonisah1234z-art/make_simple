@@ -1,24 +1,33 @@
 <?php
 session_start();
+header('Cache-Control: no-store, no-cache, must-revalidate, max-age=0');
+header('Pragma: no-cache');
 include 'db.php';
 require_once 'auth.php';
 
 $error = '';
+
+if (isset($_SESSION['admin_id']) || ($_SESSION['role'] ?? '') === 'Admin') {
+    redirect_to_role_dashboard('Admin');
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $role = $_POST['role'] ?? '';
     $identifier = trim($_POST['identifier'] ?? '');
     $password = $_POST['password'] ?? '';
 
-    // ensure auth schema (creates login_attempts table) and apply brute-force protection
-    ensure_auth_schema($conn);
-    // simple brute-force protection: max 5 attempts per 15 minutes per identifier or IP
-    $maxAttempts = 5;
-    $lockMinutes = 15;
-    $ip = $_SERVER['REMOTE_ADDR'] ?? '';
+    if (!isset($conn) || !($conn instanceof mysqli)) {
+        $error = defined('DB_BOOTSTRAP_ERROR') ? DB_BOOTSTRAP_ERROR : 'Database is temporarily unavailable. Please try again later.';
+    } else {
+        // ensure auth schema (creates login_attempts table) and apply brute-force protection
+        ensure_auth_schema($conn);
+        // simple brute-force protection: max 5 attempts per 15 minutes per identifier or IP
+        $maxAttempts = 5;
+        $lockMinutes = 15;
+        $ip = $_SERVER['REMOTE_ADDR'] ?? '';
 
-    // count recent attempts
-    $stmt = $conn->prepare("SELECT COUNT(*) AS total FROM login_attempts WHERE (ip = ? OR identifier = ?) AND attempted_at > (NOW() - INTERVAL ? MINUTE)");
+        // count recent attempts
+        $stmt = $conn->prepare("SELECT COUNT(*) AS total FROM login_attempts WHERE (ip = ? OR identifier = ?) AND attempted_at > (NOW() - INTERVAL ? MINUTE)");
     if ($stmt) {
         $stmt->bind_param('ssi', $ip, $identifier, $lockMinutes);
         $stmt->execute();
@@ -29,22 +38,22 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $count = 0;
     }
 
-    if ($count >= $maxAttempts) {
-        $error = 'Too many failed login attempts. Please try again after ' . $lockMinutes . ' minutes.';
-    } else {
-        if (login_user($conn, $role, $identifier, $password)) {
-            // on success clear attempts for this identifier/ip
-            $del = $conn->prepare('DELETE FROM login_attempts WHERE ip = ? OR identifier = ?');
-            if ($del) { $del->bind_param('ss', $ip, $identifier); $del->execute(); $del->close(); }
-            header('Location: ' . role_dashboard($_SESSION['role']));
-            exit();
+        if ($count >= $maxAttempts) {
+            $error = 'Too many failed login attempts. Please try again after ' . $lockMinutes . ' minutes.';
+        } else {
+            if (login_user($conn, $role, $identifier, $password)) {
+                // on success clear attempts for this identifier/ip
+                $del = $conn->prepare('DELETE FROM login_attempts WHERE ip = ? OR identifier = ?');
+                if ($del) { $del->bind_param('ss', $ip, $identifier); $del->execute(); $del->close(); }
+                redirect_to_role_dashboard($_SESSION['role'] ?? '');
+            }
+
+            // record failed attempt
+            $ins = $conn->prepare('INSERT INTO login_attempts (identifier, ip) VALUES (?, ?)');
+            if ($ins) { $ins->bind_param('ss', $identifier, $ip); $ins->execute(); $ins->close(); }
+
+            $error = 'Invalid role, username/email, or password.';
         }
-
-        // record failed attempt
-        $ins = $conn->prepare('INSERT INTO login_attempts (identifier, ip) VALUES (?, ?)');
-        if ($ins) { $ins->bind_param('ss', $identifier, $ip); $ins->execute(); $ins->close(); }
-
-        $error = 'Invalid role, username/email, or password.';
     }
 }
 ?>

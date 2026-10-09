@@ -47,7 +47,8 @@ foreach ($appointment_columns as $column => $sql) {
 }
 
 $selectedDoctorId = (int)($_POST['doctor_id'] ?? $_GET['doctor_id'] ?? 0);
-$selectedDepartmentName = trim((string)($_GET['dept'] ?? ''));
+$selectedDepartmentId = (int)($_POST['department_id'] ?? $_GET['department_id'] ?? 0);
+$selectedDepartmentName = trim((string)($_GET['dept'] ?? $_POST['dept'] ?? ''));
 $selectedDepartment = trim((string)($_POST['department'] ?? $_GET['department'] ?? $selectedDepartmentName ?? ''));
 $selectedSpecialty = trim((string)($_POST['specialty'] ?? $_GET['specialty'] ?? ''));
 $departmentKeywords = [
@@ -88,6 +89,7 @@ if (!empty($_POST['appointment_date'])) {
     $selectedDate = $conn->real_escape_string($_GET['appointment_date']);
 }
 $selectedTime = '';
+$todayDate = date('Y-m-d');
 if (!empty($_POST['appointment_time'])) {
     $selectedTime = $conn->real_escape_string($_POST['appointment_time']);
 }
@@ -118,66 +120,148 @@ if (empty($departments)) {
 }
 
 $doctors = [];
-$filterActive = $selectedDepartmentName !== '' || $selectedDepartment !== '' || $selectedSpecialty !== '';
-$doctorQuery = "SELECT id, name, specialty, availability_status, status, available_slots, department, working_days FROM doctors WHERE (status = 'Available' OR availability_status = 'Available') ORDER BY name ASC";
-$result = $conn->query($doctorQuery);
-if ($result) {
-    while ($row = $result->fetch_assoc()) {
-        if ($filterActive && !doctor_matches_filters($row, $selectedDepartment, $selectedDepartmentName, $selectedSpecialty, $departmentKeywords)) {
-            continue;
-        }
-        $doctors[] = $row;
+$filterActive = $selectedDepartmentName !== '' || $selectedDepartment !== '' || $selectedSpecialty !== '' || $selectedDepartmentId > 0;
+$doctorQuery = "SELECT id, name, specialty, availability_status, status, available_slots, department, working_days, experience_years FROM doctors WHERE (status = 'Available' OR availability_status = 'Available')";
+$doctorBindings = [];
+
+if ($selectedDepartmentId > 0) {
+    $departmentNameRow = $conn->query('SELECT name FROM departments WHERE id = ' . (int)$selectedDepartmentId . ' AND status = "Active" LIMIT 1');
+    if ($departmentNameRow && $departmentNameRow->num_rows > 0) {
+        $selectedDepartment = trim((string)$departmentNameRow->fetch_assoc()['name']);
     }
+    $doctorQuery .= " AND LOWER(TRIM(COALESCE(department, ''))) = LOWER(TRIM(?))";
+    $doctorBindings[] = $selectedDepartment !== '' ? $selectedDepartment : '';
+} elseif ($selectedDepartment !== '') {
+    $selectedDepartment = trim((string)$selectedDepartment);
+    $doctorQuery .= " AND LOWER(TRIM(COALESCE(department, ''))) = LOWER(TRIM(?))";
+    $doctorBindings[] = $selectedDepartment;
+} elseif ($selectedDepartmentName !== '') {
+    $selectedDepartmentName = trim((string)$selectedDepartmentName);
+    $doctorQuery .= " AND LOWER(TRIM(COALESCE(department, ''))) = LOWER(TRIM(?))";
+    $doctorBindings[] = $selectedDepartmentName;
 }
-$fallbackMessage = '';
-if ($filterActive && empty($doctors)) {
-    $fallbackMessage = 'No available doctors were found for your selected filter. Showing all open doctors instead.';
-    $doctors = [];
+
+$doctorQuery .= " ORDER BY name ASC";
+$statement = $conn->prepare($doctorQuery);
+if ($statement) {
+    if (!empty($doctorBindings)) {
+        $types = str_repeat('s', count($doctorBindings));
+        $statement->bind_param($types, ...$doctorBindings);
+    }
+    $statement->execute();
+    $result = $statement->get_result();
+    if ($result) {
+        while ($row = $result->fetch_assoc()) {
+            if ($filterActive && !doctor_matches_filters($row, $selectedDepartment, $selectedDepartmentName, $selectedSpecialty, $departmentKeywords)) {
+                continue;
+            }
+            $doctors[] = $row;
+        }
+    }
+    $statement->close();
+} else {
     $result = $conn->query($doctorQuery);
     if ($result) {
         while ($row = $result->fetch_assoc()) {
+            if ($filterActive && !doctor_matches_filters($row, $selectedDepartment, $selectedDepartmentName, $selectedSpecialty, $departmentKeywords)) {
+                continue;
+            }
             $doctors[] = $row;
         }
     }
 }
+// If a specific doctor was requested via GET/POST, ensure they are present in the list
+if ($selectedDoctorId > 0) {
+    $found = false;
+    foreach ($doctors as $d) {
+        if ((int)$d['id'] === (int)$selectedDoctorId) { $found = true; break; }
+    }
+    if (!$found) {
+        $stmtD = $conn->prepare('SELECT id, name, specialty, availability_status, status, available_slots, department, working_days, experience_years FROM doctors WHERE id = ? LIMIT 1');
+        if ($stmtD) {
+            $stmtD->bind_param('i', $selectedDoctorId);
+            $stmtD->execute();
+            $resD = $stmtD->get_result();
+            $docRow = $resD ? $resD->fetch_assoc() : null;
+            $stmtD->close();
+            if ($docRow) {
+                array_unshift($doctors, $docRow);
+                if (trim((string)$selectedDepartment) === '') {
+                    $selectedDepartment = $docRow['department'] ?: $docRow['specialty'];
+                }
+            }
+        }
+    }
+    if ($filterMessage === '') {
+        $filterMessage = 'Booking pre-selected for the chosen doctor.';
+    }
+}
+$noDoctorsMessage = '';
+if ($filterActive && empty($doctors)) {
+    $noDoctorsMessage = 'No doctors are currently assigned to the selected department. Please choose another department or try again later.';
+}
+
+function normalize_filter_text(string $value): string
+{
+    $value = strtolower(trim($value));
+    $value = preg_replace('/[^a-z0-9]+/', ' ', $value) ?? '';
+    return trim(preg_replace('/\s+/', ' ', $value) ?? '');
+}
 
 function doctor_matches_filters(array $doctor, string $selectedDepartment, string $selectedDepartmentName, string $selectedSpecialty, array $departmentKeywords): bool
 {
-    $specialty = strtolower(trim((string)($doctor['specialty'] ?? '')));
-    $department = strtolower(trim((string)($doctor['department'] ?? '')));
+    $doctorText = implode(' ', array_filter([
+        $doctor['specialty'] ?? '',
+        $doctor['department'] ?? '',
+        $doctor['name'] ?? '',
+    ]));
+    $doctorTextNormalized = normalize_filter_text($doctorText);
+
     $filterTerms = [];
-    if ($selectedDepartmentName !== '') {
-        $filterTerms[] = $selectedDepartmentName;
+    foreach ([$selectedDepartmentName, $selectedDepartment] as $term) {
+        $term = trim((string)$term);
+        if ($term !== '') {
+            $filterTerms[] = $term;
+        }
     }
-    if ($selectedDepartment !== '') {
-        $filterTerms[] = $selectedDepartment;
-    }
-    $filterTerms = array_filter(array_unique($filterTerms), fn($term) => trim((string)$term) !== '');
+
+    $filterTerms = array_unique($filterTerms);
     foreach ($filterTerms as $term) {
-        $normalizedTerm = strtolower(trim((string)$term));
-        $keywords = $departmentKeywords[$term] ?? [$normalizedTerm];
-        $keywords = array_unique(array_merge([$normalizedTerm], $keywords, preg_split('/[^a-z0-9]+/', $normalizedTerm)));
+        $normalizedTerm = normalize_filter_text((string)$term);
+        if ($normalizedTerm === '') {
+            continue;
+        }
+
+        $keywords = $departmentKeywords[$term] ?? [];
+        $keywordPool = array_unique(array_filter(array_merge(
+            [$normalizedTerm],
+            array_map('normalize_filter_text', $keywords),
+            preg_split('/\s+/', $normalizedTerm)
+        )));
+
         $matches = false;
-        foreach ($keywords as $keyword) {
-            $keyword = trim((string)$keyword);
+        foreach ($keywordPool as $keyword) {
             if ($keyword === '') {
                 continue;
             }
-            if (strpos($specialty, $keyword) !== false || strpos($department, $keyword) !== false) {
+            if (strpos($doctorTextNormalized, $keyword) !== false) {
                 $matches = true;
                 break;
             }
         }
+
         if (!$matches) {
             return false;
         }
     }
+
     if ($selectedSpecialty !== '') {
-        $selectedSpecialty = strtolower(trim($selectedSpecialty));
-        if ($selectedSpecialty !== '' && strpos($specialty, $selectedSpecialty) === false && strpos($department, $selectedSpecialty) === false) {
+        $selectedSpecialtyNormalized = normalize_filter_text((string)$selectedSpecialty);
+        if ($selectedSpecialtyNormalized !== '' && strpos($doctorTextNormalized, $selectedSpecialtyNormalized) === false) {
             return false;
         }
     }
+
     return true;
 }
 
@@ -288,21 +372,49 @@ function get_available_slots(mysqli $conn, int $doctorId, string $date): array
 }
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    $doctor_id = (int)($_POST['doctor_id'] ?? 0);
-    $selectedDepartment = trim((string)($_POST['department'] ?? ''));
+    // Accept doctor_id from POST or fallback to GET (for cases where hidden inputs were removed)
+    $doctor_id = (int)($_POST['doctor_id'] ?? $_GET['doctor_id'] ?? 0);
+    $selectedDepartment = trim((string)($_POST['department'] ?? $_GET['department'] ?? ''));
     $date = $conn->real_escape_string($_POST['appointment_date'] ?? '');
     $time = $conn->real_escape_string($_POST['appointment_time'] ?? '');
     $refreshSlots = !empty($_POST['refresh_slots']);
+    $todayDate = date('Y-m-d');
 
     $selectedDoctorId = $doctor_id;
     $selectedDate = $date;
     $selectedTime = '';
+
+    // If department wasn't supplied in POST but a doctor_id is present (booking from doctor profile),
+    // derive the department from the doctor's profile so the "Please select a department first" check won't trigger.
+    if ($selectedDepartment === '' && $doctor_id > 0) {
+        $stmtDept = $conn->prepare('SELECT department, specialty FROM doctors WHERE id = ? LIMIT 1');
+        if ($stmtDept) {
+            $stmtDept->bind_param('i', $doctor_id);
+            $stmtDept->execute();
+            $resDept = $stmtDept->get_result();
+            $docDeptRow = $resDept ? $resDept->fetch_assoc() : null;
+            $stmtDept->close();
+            if ($docDeptRow) {
+                $selectedDepartment = trim((string)($docDeptRow['department'] ?: $docDeptRow['specialty']));
+            }
+        }
+    }
+
+    if ($selectedDepartmentId === 0 && $selectedDepartment !== '') {
+        $selectedDepartmentId = (int)($conn->query('SELECT id FROM departments WHERE status = "Active" AND LOWER(TRIM(name)) = LOWER(TRIM("' . $conn->real_escape_string($selectedDepartment) . '")) LIMIT 1')->fetch_assoc()['id'] ?? 0);
+    }
+
+    if ($selectedDepartment === '' && $selectedDepartmentId > 0) {
+        $selectedDepartment = trim((string)($conn->query('SELECT name FROM departments WHERE id = ' . (int)$selectedDepartmentId . ' AND status = "Active" LIMIT 1')->fetch_assoc()['name'] ?? ''));
+    }
 
     if ($refreshSlots) {
         $error = '';
         $message = '';
     } elseif ($selectedDepartment === '') {
         $error = 'Please select a department first.';
+    } elseif ($date === '' || $date < $todayDate) {
+        $error = 'Past dates are not allowed. Please select today or a future date.';
     } elseif (!$doctor_id || !$date || !$time) {
         $error = 'Please select a doctor and choose a date/time.';
     } else {
@@ -479,24 +591,36 @@ if ($selectedDoctorId > 0 && $selectedDate !== '') {
                 <form id="appointment-form" method="POST" action="book-appointment.php">
                     <input type="hidden" name="refresh_slots" id="refresh_slots" value="0">
                     <label for="department">Select Department</label>
-                    <select id="department" name="department" required>
+                    <select id="department" name="department" required <?php echo $selectedDoctorId > 0 ? 'disabled' : ''; ?> >
                         <option value="">Choose a department</option>
                         <?php foreach ($departments as $department): ?>
                             <option value="<?php echo htmlspecialchars($department['name']); ?>" <?php echo $selectedDepartment === $department['name'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($department['name']); ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <?php if ($selectedDoctorId > 0): ?><input type="hidden" name="department" value="<?php echo htmlspecialchars($selectedDepartment); ?>"><?php endif; ?>
+                    <?php if ($selectedDepartmentId > 0): ?><input type="hidden" name="department_id" value="<?php echo (int)$selectedDepartmentId; ?>"><?php endif; ?>
 
                     <div id="filter-notification" class="alert info" style="display: <?php echo $filterMessage !== '' ? 'block' : 'none'; ?>; margin-bottom: 18px;">
                         <?php echo htmlspecialchars($filterMessage); ?>
                     </div>
 
                     <label for="doctor_id">Select Doctor</label>
-                    <select id="doctor_id" name="doctor_id" required <?php echo empty($doctors) ? 'disabled' : ''; ?> >
+                    <select id="doctor_id" name="doctor_id" required <?php echo (empty($doctors) ? 'disabled' : '') . ($selectedDoctorId > 0 ? ' disabled' : ''); ?> >
                         <option value="">Pick a doctor</option>
                         <?php foreach ($doctors as $doctor): ?>
-                            <option value="<?php echo (int)$doctor['id']; ?>" <?php echo $selectedDoctorId === (int)$doctor['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($doctor['name']) . ' — ' . htmlspecialchars($doctor['specialty']); ?></option>
+                            <option value="<?php echo (int)$doctor['id']; ?>"
+                                data-department="<?php echo htmlspecialchars($doctor['department'] ?? ''); ?>"
+                                data-specialty="<?php echo htmlspecialchars($doctor['specialty'] ?? ''); ?>"
+                                <?php echo $selectedDoctorId === (int)$doctor['id'] ? 'selected' : ''; ?>><?php echo htmlspecialchars($doctor['name']) . ' — ' . htmlspecialchars($doctor['specialty']); ?></option>
                         <?php endforeach; ?>
                     </select>
+                    <?php if ($selectedDoctorId > 0): ?><input type="hidden" name="doctor_id" value="<?php echo (int)$selectedDoctorId; ?>"><?php endif; ?>
+                    <?php if ($selectedDoctorId > 0): ?><input type="hidden" name="department_id" value="<?php echo (int)$selectedDepartmentId; ?>"><?php endif; ?>
+                    <?php if ($filterActive && !empty($noDoctorsMessage)): ?>
+                        <div id="doctor-empty-message" class="alert info" style="margin-top: 0; margin-bottom: 18px;"><?php echo htmlspecialchars($noDoctorsMessage); ?></div>
+                    <?php else: ?>
+                        <div id="doctor-empty-message" class="alert info" style="display: none; margin-top: 0; margin-bottom: 18px;"></div>
+                    <?php endif; ?>
                     <ul class="doctor-list">
                         <?php foreach ($doctors as $doctor): ?>
                             <li>
@@ -505,12 +629,12 @@ if ($selectedDoctorId > 0 && $selectedDate !== '') {
                             </li>
                         <?php endforeach; ?>
                     </ul>
-                    <?php if (empty($doctors)): ?>
+                    <?php if (empty($doctors) && !$filterActive): ?>
                         <div class="alert error" style="margin-top: 0;">No available doctors are currently open for booking. Please check back later.</div>
                     <?php endif; ?>
 
                     <label for="appointment_date">Date</label>
-                    <input id="appointment_date" type="date" name="appointment_date" required value="<?php echo htmlspecialchars($selectedDate); ?>" <?php echo empty($doctors) ? 'disabled' : ''; ?> >
+                    <input id="appointment_date" type="date" name="appointment_date" required value="<?php echo htmlspecialchars($selectedDate); ?>" min="<?php echo htmlspecialchars($todayDate); ?>" <?php echo empty($doctors) ? 'disabled' : ''; ?> >
 
                     <label for="appointment_time">Time</label>
                     <?php if ($selectedDoctorId > 0 && $selectedDate !== '' && empty($availableSlots)): ?>
@@ -547,6 +671,7 @@ if ($selectedDoctorId > 0 && $selectedDate !== '') {
         const doctorSelect = document.getElementById('doctor_id');
         const dateInput = document.getElementById('appointment_date');
         const refreshInput = document.getElementById('refresh_slots');
+        const doctorEmptyMessage = document.getElementById('doctor-empty-message');
 
         if (!form || !doctorSelect || !dateInput || !refreshInput) {
             return;
@@ -580,8 +705,58 @@ if ($selectedDoctorId > 0 && $selectedDate !== '') {
             }
         };
 
+        const updateDoctorList = () => {
+            const selectedDepartment = departmentSelect?.value || '';
+            const departmentText = selectedDepartment.toLowerCase();
+            let visibleCount = 0;
+            Array.from(doctorSelect.options).forEach((option) => {
+                if (!option.value) {
+                    option.hidden = false;
+                    option.disabled = false;
+                    return;
+                }
+
+                const optionDepartment = (option.getAttribute('data-department') || '').toLowerCase();
+                const optionSpecialty = (option.getAttribute('data-specialty') || '').toLowerCase();
+                const matchesDepartment = !selectedDepartment || optionDepartment.includes(departmentText) || optionSpecialty.includes(departmentText) || departmentText.includes(optionDepartment) || departmentText.includes(optionSpecialty);
+
+                option.hidden = !matchesDepartment;
+                option.disabled = !matchesDepartment;
+                if (matchesDepartment) {
+                    visibleCount += 1;
+                }
+            });
+
+            const currentValue = doctorSelect.value;
+            if (!selectedDepartment) {
+                doctorSelect.disabled = false;
+                doctorSelect.value = currentValue && currentValue !== '' ? currentValue : '';
+                if (doctorEmptyMessage) {
+                    doctorEmptyMessage.style.display = 'none';
+                    doctorEmptyMessage.textContent = '';
+                }
+            } else if (visibleCount === 0) {
+                doctorSelect.disabled = true;
+                doctorSelect.value = '';
+                if (doctorEmptyMessage) {
+                    doctorEmptyMessage.textContent = 'No doctors are currently assigned to the selected department. Please choose another department or try again later.';
+                    doctorEmptyMessage.style.display = 'block';
+                }
+            } else {
+                doctorSelect.disabled = false;
+                if (!currentValue || Array.from(doctorSelect.options).every((option) => option.hidden || option.value === '' || option.value !== currentValue)) {
+                    doctorSelect.value = '';
+                }
+                if (doctorEmptyMessage) {
+                    doctorEmptyMessage.style.display = 'none';
+                    doctorEmptyMessage.textContent = '';
+                }
+            }
+        };
+
         departmentSelect?.addEventListener('change', () => {
             updateFilterNotification();
+            updateDoctorList();
             refreshSlots();
         });
         doctorSelect.addEventListener('change', () => {
@@ -592,6 +767,7 @@ if ($selectedDoctorId > 0 && $selectedDate !== '') {
         });
 
         updateFilterNotification();
+        updateDoctorList();
     });
 </script>
 </body>

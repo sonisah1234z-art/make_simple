@@ -143,7 +143,107 @@ require_once 'announcements.php';
         </div>
 
         <div class="card">
-            <h3>🚪 Logout</h3>
+            <h3>�️ Leave</h3>
+            <a href="leave_request.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>📜 Leave History</h3>
+            <a href="leave_history.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>🩺 My Assigned Patients</h3>
+            <a href="nurse_assigned_patients.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>👤 Patient Details</h3>
+            <a href="nurse_patient_details.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>📈 Vital Signs</h3>
+            <a href="nurse_vital_signs.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>💊 Medication Administration</h3>
+            <a href="nurse_medication_admin.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>📝 Nursing Notes</h3>
+            <a href="nurse_nursing_notes.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>📋 Doctor Instructions</h3>
+            <a href="nurse_doctor_instructions.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>💉 IV Fluid Monitoring</h3>
+            <a href="nurse_iv_monitoring.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>🩹 Injection/Treatment Records</h3>
+            <a href="nurse_treatment_records.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>🧪 Lab Test Status</h3>
+            <a href="nurse_lab_test_status.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>🚨 Emergency Alerts</h3>
+            <a href="nurse_emergency_alerts.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>🛏 Ward/Room/Bed</h3>
+            <a href="nurse_ward_management.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>🧾 Admission/Transfer</h3>
+            <a href="nurse_admission_transfer.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>✅ Nursing Tasks</h3>
+            <a href="nurse_tasks.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>⏰ Medication Reminders</h3>
+            <a href="nurse_medication_reminders.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>📡 Patient Monitoring</h3>
+            <a href="nurse_patient_monitoring.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>🔔 Notifications</h3>
+            <a href="nurse_notifications.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>👩‍⚕ Nurse Profile</h3>
+            <a href="nurse_profile.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>📄 Daily Nursing Reports</h3>
+            <a href="nurse_daily_reports.php">Open</a>
+        </div>
+
+        <div class="card">
+            <h3>�🚪 Logout</h3>
             <a href="logout.php">Logout</a>
         </div>
 
